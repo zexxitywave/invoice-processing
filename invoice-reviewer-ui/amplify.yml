@@ -1,0 +1,16 @@
+version: 1
+frontend:
+  phases:
+    build:
+      commands:
+        - echo "No build step needed – pure HTML/CSS/JS"
+  artifacts:
+    baseDirectory: .
+    files:
+      - index.html
+      - review.html
+      - style.css
+      - app.js
+      - config.js
+  cache:
+    paths: []
