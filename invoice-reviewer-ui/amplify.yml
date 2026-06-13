@@ -7,10 +7,13 @@ frontend:
   artifacts:
     baseDirectory: .
     files:
+      - login.html
       - index.html
+      - upload.html
       - review.html
       - style.css
       - app.js
+      - auth.js
       - config.js
   cache:
     paths: []

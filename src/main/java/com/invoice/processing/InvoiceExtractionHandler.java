@@ -42,7 +42,7 @@ public class InvoiceExtractionHandler
 
     // ── Configuration ──────────────────────────────────────────────────────────
     private static final String DYNAMO_TABLE         = "invoices";
-    private static final double CONFIDENCE_THRESHOLD = 95.0;
+    private static final double CONFIDENCE_THRESHOLD = 100.0;
 
     // Loaded once from Secrets Manager (with env-var fallback)
     private final SecretsManagerConfig config = SecretsManagerConfig.getInstance();
@@ -477,16 +477,26 @@ Return ONLY valid JSON – no markdown fences, no extra text.
                                  double avgConf, String comments, Context ctx) {
         try {
             SecretsManagerConfig cfg = SecretsManagerConfig.getInstance();
+            String reviewUrl = cfg.getFrontendUrl() + "/review.html?id=" + invoiceId.replace("#", "%23").trim();
+
             String subject = "⚠️ Invoice Requires Manual Review – ID: " + invoiceId;
             String body = String.format(
                     "Hello,\n\n"
-                  + "Invoice ID  : %s requires manual review.\n\n"
+                  + "An invoice has been flagged for manual review.\n\n"
+                  + "Invoice ID             : %s\n"
                   + "TOTAL field confidence : %.1f%%  (threshold: %.1f%%)\n"
-                  + "Average confidence     : %.1f%%\n\n"
-                  + "Comments: %s\n\n"
-                  + "Please log in to the invoice review portal to approve or reject this invoice.\n\n"
+                  + "Average confidence     : %.1f%%\n"
+                  + "Comments               : %s\n\n"
+                  + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                  + "👉 Review this invoice now:\n"
+                  + "%s\n"
+                  + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                  + "Or go to the dashboard:\n"
+                  + "%s\n\n"
                   + "— Invoice Processing System",
-                    invoiceId, totalConf, CONFIDENCE_THRESHOLD, avgConf, comments);
+                    invoiceId, totalConf, CONFIDENCE_THRESHOLD, avgConf, comments,
+                    reviewUrl,
+                    cfg.getFrontendUrl());
 
             sesClient.sendEmail(SendEmailRequest.builder()
                     .fromEmailAddress(cfg.getSesSender())

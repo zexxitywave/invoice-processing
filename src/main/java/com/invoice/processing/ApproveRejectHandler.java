@@ -1,9 +1,14 @@
 package com.invoice.processing;
 
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -15,10 +20,6 @@ import software.amazon.awssdk.services.sesv2.model.Destination;
 import software.amazon.awssdk.services.sesv2.model.EmailContent;
 import software.amazon.awssdk.services.sesv2.model.Message;
 import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
-
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * ApproveRejectHandler – called by API Gateway when the reviewer clicks
@@ -137,12 +138,17 @@ public class ApproveRejectHandler
                   + "Note        : %s\n"
                   + "Timestamp   : %s\n\n"
                   + "This action has been recorded in the system.\n\n"
+                  + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                  + "👉 View the dashboard:\n"
+                  + "%s\n"
+                  + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                   + "— Invoice Processing System",
                     invoiceId,
                     decision,
                     reviewer != null ? reviewer : "unknown",
                     reason   != null ? reason   : "—",
-                    Instant.now());
+                    Instant.now(),
+                    cfg.getFrontendUrl());
 
             sesClient.sendEmail(SendEmailRequest.builder()
                     .fromEmailAddress(cfg.getSesSender())
