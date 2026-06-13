@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Upload Invoice – Invoice Processing System</title>
-  <link rel="stylesheet" href="style.css"/>
+  <link rel="stylesheet" href="/style.css"/>
   <style>
     .upload-card { max-width: 620px; margin: 0 auto; }
 
@@ -76,9 +76,9 @@
 <nav class="navbar">
   <div class="nav-brand">📄 Invoice Processing System</div>
   <div class="nav-links">
-    <a href="index.html">Dashboard</a>
-    <a href="upload.html" class="active">Upload Invoice</a>
-    <a href="review.html">Review Queue</a>
+    <a href="/index.html">Dashboard</a>
+    <a href="/upload.html" class="active">Upload Invoice</a>
+    <a href="/review.html">Review Queue</a>
     <button class="btn btn-secondary btn-sm" onclick="logout()" style="margin-left:1rem">🚪 Logout</button>
   </div>
 </nav>
@@ -135,7 +135,7 @@
       <div>6️⃣ &nbsp;If confidence &lt; 95% → <strong>SES email</strong> sent for human review</div>
       <div style="margin-top:.6rem">
         Results appear on the
-        <a href="index.html" style="color:#6366f1;font-weight:600">Dashboard</a>
+        <a href="/index.html" style="color:#6366f1;font-weight:600">Dashboard</a>
         within ~30 seconds.
       </div>
     </div>
@@ -153,12 +153,12 @@ const AUTH_KEY  = "ips_auth";
 
 function requireLogin() {
   if (sessionStorage.getItem(AUTH_KEY) !== 'true') {
-    window.location.href = 'login.html';
+    window.location.href = '/login.html';
   }
 }
 function logout() {
   sessionStorage.removeItem(AUTH_KEY);
-  window.location.href = 'login.html';
+  window.location.href = '/login.html';
 }
 requireLogin();
 </script>
