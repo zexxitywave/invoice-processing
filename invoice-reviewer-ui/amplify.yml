@@ -18,3 +18,22 @@ frontend:
       - config.js
   cache:
     paths: []
+customRules:
+  - source: /audit
+    target: /audit.html
+    status: "200"
+  - source: /review
+    target: /review.html
+    status: "200"
+  - source: /upload
+    target: /upload.html
+    status: "200"
+  - source: /login
+    target: /login.html
+    status: "200"
+  - source: /index
+    target: /index.html
+    status: "200"
+  - source: /<*>
+    target: /index.html
+    status: "404-200"
