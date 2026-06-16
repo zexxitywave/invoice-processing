@@ -3,84 +3,290 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  
-  <title>Invoice Processing – Dashboard</title>
+  <title>Invoice Processing System</title>
   <link rel="stylesheet" href="style.css"/>
+  <style>
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* Upload page extras */
+    .drop-zone {
+      border: 2.5px dashed #cbd5e1; border-radius: 14px; padding: 2.5rem 2rem;
+      text-align: center; cursor: pointer; transition: border-color .2s, background .2s;
+      background: #f8fafc; margin: 1.5rem;
+    }
+    .drop-zone.dragover  { border-color: #6366f1; background: #eef2ff; }
+    .drop-zone.has-files { border-color: #22c55e; background: #f0fdf4; }
+    .drop-icon  { font-size: 2.2rem; margin-bottom: .6rem; }
+    .drop-title { font-size: 1rem; font-weight: 700; color: #0f172a; margin-bottom: .25rem; }
+    .drop-sub   { font-size: .82rem; color: #64748b; }
+    .file-queue { margin: 0 1.5rem 1rem; display: flex; flex-direction: column; gap: .4rem; }
+    .file-row   { display: flex; align-items: center; gap: .65rem; background: #f8fafc;
+                  border: 1px solid #e2e8f0; border-radius: 8px; padding: .5rem .8rem; font-size: .84rem; }
+    .file-row .f-name { flex:1; font-weight:600; color:#0f172a; overflow:hidden;
+                        text-overflow:ellipsis; white-space:nowrap; max-width:260px; }
+    .file-row .f-size   { color:#64748b; font-size:.76rem; white-space:nowrap; }
+    .file-row .f-status { font-size:.76rem; font-weight:600; white-space:nowrap; min-width:80px; text-align:right; }
+    .file-row .f-remove { cursor:pointer; color:#94a3b8; font-size:1rem; }
+    .file-row .f-remove:hover { color:#ef4444; }
+    .file-row .f-bar-wrap { width:80px; height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden; }
+    .file-row .f-bar-fill { height:100%; background:#6366f1; border-radius:3px; transition:width .3s; }
+    .status-pending   { color:#94a3b8; }
+    .status-uploading { color:#6366f1; }
+    .status-done      { color:#15803d; }
+    .status-error     { color:#b91c1c; }
+    .upload-actions { padding:0 1.5rem 1.2rem; display:flex; gap:.8rem; align-items:center; }
+    .upload-summary { font-size:.82rem; color:#64748b; margin-left:auto; }
+    .upload-result  { margin:0 1.5rem .8rem; padding:.85rem 1rem; border-radius:8px;
+                      font-size:.875rem; font-weight:600; display:none; }
+    .upload-result.ok  { display:block; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; }
+    .upload-result.err { display:block; background:#fee2e2; color:#b91c1c; border:1px solid #fecaca; }
+    .info-box { padding:1.2rem 1.5rem; font-size:.875rem; color:#334155; line-height:1.75; }
+
+    /* Audit extras */
+    .summary-row { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+                   gap:1rem; padding:1.2rem 1.5rem; border-bottom:1px solid #f1f5f9; }
+    .summary-item { text-align:center; }
+    .summary-item .s-val   { font-size:1.8rem; font-weight:800; color:#0f172a; line-height:1; }
+    .summary-item .s-label { font-size:.72rem; font-weight:700; text-transform:uppercase;
+                             letter-spacing:.5px; color:#64748b; margin-top:.3rem; }
+    .filter-row { display:flex; gap:.75rem; padding:1rem 1.5rem; flex-wrap:wrap; align-items:center; }
+    .filter-row select, .filter-row input {
+      padding:.4rem .7rem; border:1px solid #cbd5e1; border-radius:8px;
+      font-size:.83rem; font-family:inherit; color:#0f172a; background:#fff; }
+    .filter-row label { font-size:.8rem; font-weight:600; color:#334155; }
+    tfoot td { font-weight:700; background:#f8fafc; border-top:2px solid #e2e8f0; }
+  </style>
 </head>
 <body>
 
+<!-- ── Navbar ─────────────────────────────────────────────────────────────── -->
 <nav class="navbar">
   <div class="nav-brand">📄 Invoice Processing System</div>
   <div class="nav-links">
-    <a href="index.html" class="active">Dashboard</a>
-    <a href="upload.html">Upload Invoice</a>
-    <a href="review.html">Review Queue</a>
-    <a href="audit.html">Audit Report</a>
+    <a href="#" onclick="showPage('dashboard')" id="nav-dashboard" class="active">Dashboard</a>
+    <a href="#" onclick="showPage('upload')"    id="nav-upload">Upload Invoice</a>
+    <a href="#" onclick="showPage('review')"    id="nav-review">Review Queue</a>
+    <a href="#" onclick="showPage('audit')"     id="nav-audit">Audit Report</a>
     <button class="btn btn-secondary btn-sm" onclick="logout()" style="margin-left:1rem">🚪 Logout</button>
   </div>
 </nav>
 
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!--  PAGE: DASHBOARD                                                        -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div id="page-dashboard" class="page active">
 <div class="container">
   <h1 class="page-title">Dashboard</h1>
-
-  <!-- Stat cards -->
   <div class="stats-grid">
-    <div class="stat-card approved">
-      <div class="stat-icon">✅</div>
-      <div class="stat-label">AI Approved</div>
-      <div class="stat-value" id="cnt-approved">—</div>
-    </div>
-    <div class="stat-card review">
-      <div class="stat-icon">🔶</div>
-      <div class="stat-label">Review Required</div>
-      <div class="stat-value" id="cnt-review">—</div>
-    </div>
-    <div class="stat-card duplicate">
-      <div class="stat-icon">🔁</div>
-      <div class="stat-label">Duplicates</div>
-      <div class="stat-value" id="cnt-duplicate">—</div>
-    </div>
-    <div class="stat-card total">
-      <div class="stat-icon">📦</div>
-      <div class="stat-label">Total Invoices</div>
-      <div class="stat-value" id="cnt-total">—</div>
-    </div>
+    <div class="stat-card approved">  <div class="stat-icon">✅</div><div class="stat-label">AI Approved</div>      <div class="stat-value" id="cnt-approved">—</div></div>
+    <div class="stat-card review">    <div class="stat-icon">🔶</div><div class="stat-label">Review Required</div>  <div class="stat-value" id="cnt-review">—</div></div>
+    <div class="stat-card duplicate"> <div class="stat-icon">🔁</div><div class="stat-label">Duplicates</div>       <div class="stat-value" id="cnt-duplicate">—</div></div>
+    <div class="stat-card total">     <div class="stat-icon">📦</div><div class="stat-label">Total Invoices</div>   <div class="stat-value" id="cnt-total">—</div></div>
   </div>
-
-  <!-- Invoice table -->
   <div class="card">
     <div class="card-header">
       <h2>All Invoices</h2>
       <button class="btn btn-primary" onclick="loadDashboard()">🔄 Refresh</button>
     </div>
-    <div id="err" class="error-banner hidden"></div>
-    <div id="loading" class="loading hidden">Loading…</div>
+    <div id="dash-err" class="error-banner hidden"></div>
+    <div id="dash-loading" class="loading hidden">Loading…</div>
     <div class="table-wrapper">
-      <table>
-        <thead>
-          <tr>
-            <th>Invoice ID</th>
-            <th>Vendor</th>
-            <th>Date</th>
-            <th>Total</th>
-            <th>Risk</th>
-            <th>AI Status</th>
-            <th>Human Decision</th>
-            <th>TOTAL Conf.</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="tbody">
-          <tr><td colspan="9" class="empty-row">Click Refresh to load invoices</td></tr>
-        </tbody>
+      <table><thead><tr>
+        <th>Invoice ID</th><th>Vendor</th><th>Date</th><th>Total</th>
+        <th>Risk</th><th>AI Status</th><th>Human Decision</th><th>TOTAL Conf.</th><th>Action</th>
+      </tr></thead>
+      <tbody id="dash-tbody"><tr><td colspan="9" class="empty-row">Click Refresh to load</td></tr></tbody>
       </table>
     </div>
   </div>
 </div>
+</div>
 
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!--  PAGE: UPLOAD                                                           -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div id="page-upload" class="page">
+<div class="container">
+  <h1 class="page-title">Upload Invoices</h1>
+  <div class="card" style="max-width:620px;margin:0 auto 1.5rem">
+    <div class="card-header">
+      <h2>Select PDF files</h2>
+      <span id="queue-count" style="font-size:.8rem;color:#64748b"></span>
+    </div>
+    <div class="drop-zone" id="drop-zone"
+         onclick="document.getElementById('file-input').click()"
+         ondragover="onDragOver(event)" ondragleave="onDragLeave()" ondrop="onDrop(event)">
+      <div class="drop-icon">📂</div>
+      <div class="drop-title">Click to browse or drag & drop</div>
+      <div class="drop-sub">PDF files only · Max 10MB each · Multiple files supported</div>
+    </div>
+    <input type="file" id="file-input" accept=".pdf,application/pdf" multiple
+           style="display:none" onchange="onFilesSelected(this.files)"/>
+    <div class="file-queue" id="file-queue"></div>
+    <div class="upload-result" id="upload-result"></div>
+    <div class="upload-actions">
+      <button class="btn btn-primary" id="upload-btn" onclick="uploadAll()" disabled>⬆️ Upload All</button>
+      <button class="btn btn-secondary" onclick="clearAll()">Clear All</button>
+      <span class="upload-summary" id="upload-summary"></span>
+    </div>
+  </div>
+  <div class="card" style="max-width:620px;margin:0 auto">
+    <div class="card-header"><h2>What happens after upload?</h2></div>
+    <div class="info-box">
+      <div>1️⃣ &nbsp;<strong>PDF lands in S3</strong> — EventBridge detects the new file</div>
+      <div>2️⃣ &nbsp;<strong>Step Functions</strong> orchestrates the pipeline</div>
+      <div>3️⃣ &nbsp;<strong>Textract</strong> extracts vendor, date, totals &amp; confidence scores</div>
+      <div>4️⃣ &nbsp;<strong>Bedrock AI</strong> validates and assigns risk level</div>
+      <div>5️⃣ &nbsp;<strong>DynamoDB</strong> stores the result</div>
+      <div>6️⃣ &nbsp;If confidence &lt; 95% → <strong>SES email</strong> sent for human review</div>
+      <div style="margin-top:.6rem">Results appear on the
+        <a href="#" onclick="showPage('dashboard')" style="color:#6366f1;font-weight:600">Dashboard</a>
+        within ~30 seconds.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!--  PAGE: REVIEW QUEUE                                                     -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div id="page-review" class="page">
+<div class="container">
+  <h1 class="page-title">Review Queue</h1>
+  <div id="rev-err" class="error-banner hidden"></div>
+  <div id="rev-loading" class="loading hidden">Loading…</div>
+
+  <div id="detail-card" class="card hidden">
+    <div class="card-header">
+      <h2 id="detail-title">Invoice Detail</h2>
+      <button class="btn btn-secondary" onclick="closeDetail()">✕ Close</button>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-item"><span class="detail-label">Invoice ID</span>     <span class="detail-value" id="d-id">—</span></div>
+      <div class="detail-item"><span class="detail-label">Vendor Name</span>    <span class="detail-value" id="d-vendor">—</span></div>
+      <div class="detail-item"><span class="detail-label">Invoice Date</span>   <span class="detail-value" id="d-date">—</span></div>
+      <div class="detail-item"><span class="detail-label">Subtotal</span>       <span class="detail-value" id="d-subtotal">—</span></div>
+      <div class="detail-item"><span class="detail-label">Total Amount</span>   <span class="detail-value" id="d-total">—</span></div>
+      <div class="detail-item"><span class="detail-label">TOTAL Confidence</span><span class="detail-value" id="d-conf">—</span></div>
+      <div class="detail-item"><span class="detail-label">Avg Confidence</span> <span class="detail-value" id="d-avg">—</span></div>
+      <div class="detail-item wide"><span class="detail-label">Comments</span>  <span class="detail-value" id="d-comments">—</span></div>
+      <div class="detail-item wide"><span class="detail-label">Missing Fields</span><span class="detail-value" id="d-missing">—</span></div>
+    </div>
+    <div class="verdict-row">
+      <div class="verdict-box">
+        <div class="verdict-title">🤖 AI Validation</div>
+        <div class="verdict-val" id="d-ai-status">—</div>
+        <div style="font-size:.75rem;color:#64748b;margin-top:.3rem">Risk: <span id="d-risk">—</span></div>
+      </div>
+      <div class="verdict-box">
+        <div class="verdict-title">👤 Human Decision</div>
+        <div class="verdict-val" id="d-human-decision">—</div>
+        <div style="font-size:.75rem;color:#64748b;margin-top:.3rem">
+          By: <span id="d-reviewed-by">—</span> | <span id="d-reviewed-at">—</span>
+        </div>
+      </div>
+    </div>
+    <div id="decision-form" class="decision-form">
+      <h3>Make Your Decision</h3>
+      <div class="form-row"><label>Your Email</label><input type="email" id="r-email" placeholder="reviewer@example.com"/></div>
+      <div class="form-row"><label>Note (optional)</label><textarea id="r-note" rows="2" placeholder="e.g. Verified against PO"></textarea></div>
+      <div class="decision-btns">
+        <button class="btn btn-approve" onclick="submitDecision('APPROVED')">✅ Approve</button>
+        <button class="btn btn-reject"  onclick="submitDecision('REJECTED')">❌ Reject</button>
+      </div>
+    </div>
+    <div id="decision-done" class="decision-done hidden"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Pending Review</h2>
+      <button class="btn btn-primary" onclick="loadQueue()">🔄 Refresh</button>
+    </div>
+    <div class="table-wrapper">
+      <table><thead><tr>
+        <th>Invoice ID</th><th>Vendor</th><th>Total</th>
+        <th>TOTAL Conf.</th><th>Risk</th><th>Comments</th><th>Action</th>
+      </tr></thead>
+      <tbody id="queue-tbody"><tr><td colspan="7" class="empty-row">Click Refresh to load queue</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!--  PAGE: AUDIT REPORT                                                     -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div id="page-audit" class="page">
+<div class="container">
+  <h1 class="page-title">Audit Report</h1>
+  <div id="audit-err" class="error-banner hidden"></div>
+  <div id="audit-loading" class="loading hidden">Loading…</div>
+  <div class="card" style="max-width:960px;margin:0 auto 1.5rem">
+    <div class="card-header" style="flex-wrap:wrap;gap:.5rem">
+      <h2>Batch Processing Summary</h2>
+      <span id="report-meta" style="font-size:.78rem;color:#64748b">—</span>
+    </div>
+    <div class="summary-row">
+      <div class="summary-item"><div class="s-val" id="s-total">—</div><div class="s-label">Total</div></div>
+      <div class="summary-item"><div class="s-val" style="color:#15803d" id="s-approved">—</div><div class="s-label">AI Approved</div></div>
+      <div class="summary-item"><div class="s-val" style="color:#b45309" id="s-review">—</div><div class="s-label">Review Required</div></div>
+      <div class="summary-item"><div class="s-val" style="color:#6d28d9" id="s-duplicate">—</div><div class="s-label">Duplicates</div></div>
+      <div class="summary-item"><div class="s-val" style="color:#15803d" id="s-h-approved">—</div><div class="s-label">Human Approved</div></div>
+      <div class="summary-item"><div class="s-val" style="color:#be123c" id="s-h-rejected">—</div><div class="s-label">Human Rejected</div></div>
+      <div class="summary-item"><div class="s-val" id="s-avg-conf">—</div><div class="s-label">Avg Confidence</div></div>
+    </div>
+    <div class="filter-row">
+      <label>Status:</label>
+      <select id="f-status" onchange="applyAuditFilter()">
+        <option value="">All</option><option value="APPROVED">Approved</option>
+        <option value="REVIEW_REQUIRED">Review Required</option><option value="DUPLICATE">Duplicate</option>
+      </select>
+      <label>Risk:</label>
+      <select id="f-risk" onchange="applyAuditFilter()">
+        <option value="">All</option><option value="LOW">Low</option>
+        <option value="MEDIUM">Medium</option><option value="HIGH">High</option>
+      </select>
+      <label>Search:</label>
+      <input type="text" id="f-search" placeholder="Vendor or Invoice ID…" oninput="applyAuditFilter()"/>
+      <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="exportCSV()">⬇️ Export CSV</button>
+    </div>
+    <div class="table-wrapper">
+      <table><thead><tr>
+        <th>#</th><th>Invoice ID</th><th>Vendor</th><th>Date</th><th>Total</th>
+        <th>Risk</th><th>AI Status</th><th>Human Decision</th><th>TOTAL Conf.</th><th>Comments</th>
+      </tr></thead>
+      <tbody id="audit-tbody"><tr><td colspan="10" class="empty-row">Click Refresh to load</td></tr></tbody>
+      <tfoot id="audit-tfoot"></tfoot>
+      </table>
+    </div>
+  </div>
+  <div style="text-align:center;margin-bottom:1.5rem">
+    <button class="btn btn-primary" onclick="loadAudit()">🔄 Refresh Report</button>
+  </div>
+</div>
+</div>
+
+<!-- ── Scripts ─────────────────────────────────────────────────────────── -->
 <script src="config.js"></script>
 <script src="auth.js"></script>
 <script src="app.js"></script>
-<script>requireLogin(); loadDashboard();</script>
+<script>
+// ── Page routing (SPA – no redirects needed) ──────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-links a').forEach(a => a.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.getElementById('nav-'  + name).classList.add('active');
+  // Auto-load data when switching pages
+  if (name === 'dashboard') loadDashboard();
+  if (name === 'review')    loadQueue();
+  if (name === 'audit')     loadAudit();
+}
+requireLogin();
+loadDashboard();
+</script>
 </body>
 </html>
