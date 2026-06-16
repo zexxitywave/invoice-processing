@@ -137,7 +137,18 @@ public class InvoiceExtractionHandler
                 context.getLogger().log(
                         "TOTAL confidence " + totalConfidence + " >= " + CONFIDENCE_THRESHOLD
                                 + " → APPROVED");
-                // Keep Bedrock's validationStatus (APPROVED or REVIEW_REQUIRED for other reasons)
+                // Confidence is above threshold — only keep REVIEW_REQUIRED if Bedrock
+                // flagged a truly critical missing field (invoiceId, total, vendorName).
+                // Missing subtotal alone is not enough to trigger human review.
+                boolean criticalFieldMissing = missingFields != null && missingFields.stream()
+                        .anyMatch(f -> f.equalsIgnoreCase("total")
+                                    || f.equalsIgnoreCase("invoiceId")
+                                    || f.equalsIgnoreCase("vendorName"));
+                if ("REVIEW_REQUIRED".equals(validationStatus) && !criticalFieldMissing) {
+                    validationStatus = "APPROVED";
+                    context.getLogger().log("Overriding Bedrock REVIEW_REQUIRED → APPROVED "
+                            + "(non-critical missing fields: " + missingFields + ")");
+                }
             }
 
             // 6. Duplicate detection – must happen after Bedrock so we still store the record

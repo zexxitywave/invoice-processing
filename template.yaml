@@ -77,6 +77,61 @@ Resources:
                   - s3:PutObject
                   - s3:GetObject
                 Resource: !Sub "arn:aws:s3:::invoice-processing-*/*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::ses-inbound-emails-eu/*"
+
+  # ── S3 Bucket: SES raw email store (eu-west-1) ────────────────────────────
+  # Note: SES inbound receipt rules only work in us-east-1, us-west-2, eu-west-1.
+  # This bucket must be in the SAME region as your SES receipt rule.
+  # If you already created this bucket manually, remove this resource to avoid conflicts.
+  SesInboundBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: ses-inbound-emails-eu
+      # Allow SES to write to this bucket
+      # (bucket policy added separately below)
+
+  SesInboundBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SesInboundBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSESPuts
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "arn:aws:s3:::ses-inbound-emails-eu/*"
+            Condition:
+              StringEquals:
+                aws:Referer: !Sub "${AWS::AccountId}"
+
+  # ── Lambda: SES Inbound (triggered by SES receipt rule) ───────────────────
+  SesInboundFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ses-inbound-handler
+      Handler: com.invoice.processing.SesInboundHandler::handleRequest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      # This Lambda reads from eu-west-1 S3 and writes to ap-south-1 S3.
+      # No API Gateway event – SES triggers it directly via receipt rule.
+      Environment:
+        Variables:
+          SES_INBOUND_BUCKET: ses-inbound-emails-eu
+          INVOICE_BUCKET: invoice-processing-buckets
+
+  # Allow SES to invoke this Lambda
+  SesInboundFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt SesInboundFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: ses.amazonaws.com
+      SourceAccount: !Sub "${AWS::AccountId}"
 
   # ── Lambda: Invoice Extraction (triggered by Step Functions) ──────────────
   InvoiceExtractionFunction:
@@ -138,10 +193,65 @@ Resources:
           - Content-Type
           - Authorization
 
+  # ── Lambda: Expired Review Cleanup (daily cron) ──────────────────────────
+  ExpiredReviewCleanupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: expired-review-cleanup
+      Handler: com.invoice.processing.ExpiredReviewCleanupHandler::handleRequest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Events:
+        DailyCleanup:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+            Name: expired-review-cleanup-schedule
+            Description: "Daily scan for invoices stuck in REVIEW_REQUIRED > 72h"
+            Enabled: true
+
+  # ── Lambda: Daily Digest Report (every morning at 08:00 IST = 02:30 UTC) ──
+  DailyDigestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: daily-digest-report
+      Handler: com.invoice.processing.DailyDigestHandler::handleRequest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Events:
+        DailyDigest:
+          Type: Schedule
+          Properties:
+            Schedule: cron(30 2 * * ? *)
+            Name: daily-digest-schedule
+            Description: "Daily digest email at 08:00 IST"
+            Enabled: true
+
+  # ── Lambda: Weekly S3 Cleanup (every Sunday at 02:00 UTC) ─────────────────
+  S3CleanupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: weekly-s3-cleanup
+      Handler: com.invoice.processing.S3CleanupHandler::handleRequest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          INVOICE_BUCKET: invoice-processing-buckets
+      Events:
+        WeeklyCleanup:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 2 ? * SUN *)
+            Name: weekly-s3-cleanup-schedule
+            Description: "Weekly S3 PDF cleanup every Sunday at 02:00 UTC"
+            Enabled: true
+
 Outputs:
   ApiUrl:
     Description: "API Gateway base URL – paste this into config.js"
     Value: !Sub "https://${InvoiceApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+
+  SesInboundFunctionArn:
+    Value: !GetAtt SesInboundFunction.Arn
+    Description: "Paste this ARN into your SES Receipt Rule → Lambda action"
 
   GetInvoiceFunctionArn:
     Value: !GetAtt GetInvoiceFunction.Arn
