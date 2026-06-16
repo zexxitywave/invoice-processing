@@ -15,7 +15,7 @@ function doLogin(event) {
 
   if (user === AUTH_USER && pass === AUTH_PASS) {
     sessionStorage.setItem(AUTH_KEY, 'true');
-    window.location.href = '/index.html';
+    window.location.href = 'index.html';
   } else {
     errEl.style.display = 'block';
     document.getElementById('password').value = '';
@@ -25,11 +25,11 @@ function doLogin(event) {
 
 function requireLogin() {
   if (sessionStorage.getItem(AUTH_KEY) !== 'true') {
-    window.location.href = '/login.html';
+    window.location.href = 'login.html';
   }
 }
 
 function logout() {
   sessionStorage.removeItem(AUTH_KEY);
-  window.location.href = '/login.html';
+  window.location.href = 'login.html';
 }

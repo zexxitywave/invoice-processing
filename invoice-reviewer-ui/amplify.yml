@@ -11,6 +11,7 @@ frontend:
       - index.html
       - upload.html
       - review.html
+      - audit.html
       - style.css
       - app.js
       - auth.js

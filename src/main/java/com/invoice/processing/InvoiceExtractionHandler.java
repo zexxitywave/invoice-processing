@@ -1,6 +1,7 @@
 package com.invoice.processing;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -42,7 +43,7 @@ public class InvoiceExtractionHandler
 
     // ── Configuration ──────────────────────────────────────────────────────────
     private static final String DYNAMO_TABLE         = "invoices";
-    private static final double CONFIDENCE_THRESHOLD = 100.0;
+    private static final double CONFIDENCE_THRESHOLD = 95.0;
 
     // Loaded once from Secrets Manager (with env-var fallback)
     private final SecretsManagerConfig config = SecretsManagerConfig.getInstance();
@@ -472,12 +473,25 @@ Return ONLY valid JSON – no markdown fences, no extra text.
                 : id;
     }
 
-    /** Send a review-required email via SES v2. */
+    /** Send a review-required email via SES v2 with one-click approve/reject links. */
     private void sendReviewEmail(String invoiceId, double totalConf,
                                  double avgConf, String comments, Context ctx) {
         try {
             SecretsManagerConfig cfg = SecretsManagerConfig.getInstance();
-            String reviewUrl = cfg.getFrontendUrl() + "/review.html?id=" + invoiceId.replace("#", "%23").trim();
+
+            // ── Generate approve/reject tokens (72-hour expiry) ────────────────
+            long exp = Instant.now().getEpochSecond() + (72 * 60 * 60L);
+            String approveToken = buildToken(invoiceId, "APPROVED", exp);
+            String rejectToken  = buildToken(invoiceId, "REJECTED",  exp);
+
+            String apiBase   = System.getenv("API_BASE_URL") != null
+                    ? System.getenv("API_BASE_URL")
+                    : "https://rw5n87lye8.execute-api.ap-south-1.amazonaws.com";
+
+            String approveLink = apiBase + "/invoices/approve?token=" + approveToken;
+            String rejectLink  = apiBase + "/invoices/reject?token="  + rejectToken;
+            String reviewUrl   = cfg.getFrontendUrl()
+                    + "/review.html?id=" + invoiceId.replace("#", "%23").trim();
 
             String subject = "⚠️ Invoice Requires Manual Review – ID: " + invoiceId;
             String body = String.format(
@@ -488,15 +502,15 @@ Return ONLY valid JSON – no markdown fences, no extra text.
                   + "Average confidence     : %.1f%%\n"
                   + "Comments               : %s\n\n"
                   + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                  + "👉 Review this invoice now:\n"
-                  + "%s\n"
+                  + "ONE-CLICK DECISION (no login required):\n\n"
+                  + "✅ APPROVE this invoice:\n%s\n\n"
+                  + "❌ REJECT this invoice:\n%s\n\n"
+                  + "⏰ Links expire in 72 hours.\n"
                   + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                  + "Or go to the dashboard:\n"
-                  + "%s\n\n"
+                  + "Or review with full details in the dashboard:\n%s\n\n"
                   + "— Invoice Processing System",
                     invoiceId, totalConf, CONFIDENCE_THRESHOLD, avgConf, comments,
-                    reviewUrl,
-                    cfg.getFrontendUrl());
+                    approveLink, rejectLink, reviewUrl);
 
             sesClient.sendEmail(SendEmailRequest.builder()
                     .fromEmailAddress(cfg.getSesSender())
@@ -513,12 +527,23 @@ Return ONLY valid JSON – no markdown fences, no extra text.
                             .build())
                     .build());
 
-            ctx.getLogger().log("SES review email sent for invoice " + invoiceId
-                    + " to " + cfg.getSesReviewer());
+            ctx.getLogger().log("SES review email with approval links sent for invoice "
+                    + invoiceId + " to " + cfg.getSesReviewer());
 
         } catch (Exception e) {
-            // Do not fail the whole pipeline if email fails
             ctx.getLogger().log("WARNING: Failed to send SES email: " + e.getMessage());
+        }
+    }
+
+    /** Build a Base64URL-encoded token for one-click email approval. */
+    private String buildToken(String invoiceId, String decision, long exp) {
+        try {
+            String json = objectMapper.writeValueAsString(
+                    Map.of("invoiceId", invoiceId, "decision", decision, "exp", exp));
+            return java.util.Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return "";
         }
     }
 

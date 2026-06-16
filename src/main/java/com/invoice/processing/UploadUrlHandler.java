@@ -44,7 +44,7 @@ public class UploadUrlHandler
     // or change the fallback string to your actual bucket name.
     private static final String BUCKET_NAME = System.getenv("INVOICE_BUCKET") != null
             ? System.getenv("INVOICE_BUCKET")
-            : "invoice-processing-bucket-ap-south";   // ← change to your bucket name
+            : "invoice-processing-buckets";   // ← change to your bucket name
 
     private static final int    URL_EXPIRY_SECONDS = 300;   // 5 minutes
 
@@ -91,7 +91,6 @@ public class UploadUrlHandler
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                     .bucket(BUCKET_NAME)
                     .key(objectKey)
-                    .contentType("application/pdf")
                     .build();
 
             PresignedPutObjectRequest presignedRequest = presigner.presignPutObject(

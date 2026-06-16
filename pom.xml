@@ -52,22 +52,18 @@
             <artifactId>s3</artifactId>
             <version>2.31.67</version>
         </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-s3</artifactId>
-            <version>1.12.767</version>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>ses</artifactId>
-            <version>2.32.8</version>
-        </dependency>
-
         <!-- AWS SDK v2 Textract -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>textract</artifactId>
             <version>2.31.67</version>
+        </dependency>
+
+        <!-- Jakarta Mail – for parsing MIME email attachments (API + implementation) -->
+        <dependency>
+            <groupId>com.sun.mail</groupId>
+            <artifactId>jakarta.mail</artifactId>
+            <version>2.0.1</version>
         </dependency>
 
         <!-- AWS Secrets Manager -->

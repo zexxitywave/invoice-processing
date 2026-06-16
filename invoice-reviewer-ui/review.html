@@ -4,16 +4,17 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Invoice Processing – Review Queue</title>
-  <link rel="stylesheet" href="/style.css"/>
+  <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
 
 <nav class="navbar">
   <div class="nav-brand">📄 Invoice Processing System</div>
   <div class="nav-links">
-    <a href="/index.html">Dashboard</a>
-    <a href="/upload.html">Upload Invoice</a>
-    <a href="/review.html" class="active">Review Queue</a>
+    <a href="index.html">Dashboard</a>
+    <a href="upload.html">Upload Invoice</a>
+    <a href="review.html" class="active">Review Queue</a>
+    <a href="audit.html">Audit Report</a>
     <button class="btn btn-secondary btn-sm" onclick="logout()" style="margin-left:1rem">🚪 Logout</button>
   </div>
 </nav>
@@ -108,9 +109,9 @@
   </div>
 </div>
 
-<script src="/config.js"></script>
-<script src="/auth.js"></script>
-<script src="/app.js"></script>
+<script src="config.js"></script>
+<script src="auth.js"></script>
+<script src="app.js"></script>
 <script>requireLogin(); loadQueue();</script>
 </body>
 </html>
