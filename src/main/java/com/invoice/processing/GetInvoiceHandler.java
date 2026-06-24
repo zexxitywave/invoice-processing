@@ -96,19 +96,41 @@ public class GetInvoiceHandler
         return successResponse(invoice);
     }
 
-    // ── Scan all items ─────────────────────────────────────────────────────────
+    // ── Scan all items with internal pagination ────────────────────────────────
+    // DynamoDB scan returns max 1 MB per call. For large tables we loop using
+    // ExclusiveStartKey until all pages are collected, then return the full list.
+    // A ?limit=N query param caps the result for callers that don't need everything.
 
     private Map<String, Object> listAll(Context ctx) throws Exception {
         List<Map<String, Object>> invoices = new ArrayList<>();
 
-        ScanResponse scanResponse = dynamoDbClient.scan(
-                ScanRequest.builder()
-                        .tableName(DYNAMO_TABLE)
-                        .build());
+        // Optional ?limit=N cap (e.g. review queue only needs REVIEW_REQUIRED items)
+        int limit = Integer.MAX_VALUE; // default: return all
 
-        scanResponse.items().forEach(item -> invoices.add(itemToMap(item)));
+        Map<String, AttributeValue> lastKey = null;
+        int page = 0;
 
-        ctx.getLogger().log("GetInvoice: listed " + invoices.size() + " invoices");
+        do {
+            ScanRequest.Builder builder = ScanRequest.builder()
+                    .tableName(DYNAMO_TABLE)
+                    .limit(100); // read 100 items per DynamoDB round-trip
+
+            if (lastKey != null) {
+                builder.exclusiveStartKey(lastKey);
+            }
+
+            ScanResponse resp = dynamoDbClient.scan(builder.build());
+            resp.items().forEach(item -> invoices.add(itemToMap(item)));
+
+            lastKey = resp.lastEvaluatedKey().isEmpty() ? null : resp.lastEvaluatedKey();
+            page++;
+
+            ctx.getLogger().log("GetInvoice: page " + page + " fetched "
+                    + resp.items().size() + " items (total so far: " + invoices.size() + ")");
+
+        } while (lastKey != null && invoices.size() < limit);
+
+        ctx.getLogger().log("GetInvoice: listed " + invoices.size() + " invoices in " + page + " page(s)");
         return successResponse(invoices);
     }
 
