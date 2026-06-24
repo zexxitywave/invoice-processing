@@ -3,6 +3,8 @@ package com.invoice.processing;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
@@ -25,24 +27,16 @@ import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
  * ApproveRejectHandler – called by API Gateway when the reviewer clicks
  * [Approve] or [Reject] in the Amplify UI.
  *
- * Expected request body (API Gateway proxy integration):
- * {
- *   "invoiceId" : "# 11502",
- *   "decision"  : "APPROVED" | "REJECTED",
- *   "reviewer"  : "john@example.com",   // optional – who made the decision
- *   "reason"    : "Looks good"           // optional – reviewer note
- * }
- *
- * Actions:
- *  1. Validates input
- *  2. Updates DynamoDB:  validationStatus = decision, reviewedAt, reviewedBy, reviewNote
- *  3. Sends SES confirmation email to the reviewer
- *  4. Returns 200 / 400 / 500
+ * DynamoDB write and SES email run in parallel via CompletableFuture.
+ * Lambda waits for BOTH to complete before returning — so the email is
+ * guaranteed to be dispatched while keeping total latency low (both
+ * operations run concurrently instead of sequentially).
  */
 public class ApproveRejectHandler
         implements RequestHandler<Map<String, Object>, Map<String, Object>> {
 
-    private static final String DYNAMO_TABLE = "invoices";
+    private static final String DYNAMO_TABLE = System.getenv("DYNAMO_TABLE") != null
+            ? System.getenv("DYNAMO_TABLE") : "invoices";
 
     private final DynamoDbClient dynamoDbClient = DynamoDbClient.builder()
             .region(Region.AP_SOUTH_1).build();
@@ -55,22 +49,23 @@ public class ApproveRejectHandler
     @Override
     public Map<String, Object> handleRequest(Map<String, Object> event, Context context) {
         try {
+            long start = System.currentTimeMillis();
+            context.getLogger().log("⏱ [TIMING] ApproveRejectHandler started");
             context.getLogger().log("ApproveReject EVENT: " + objectMapper.writeValueAsString(event));
 
-            // ── Parse body (API Gateway proxy wraps body as a JSON string) ─────
+            // ── Parse body ────────────────────────────────────────────────────
             String bodyStr = (String) event.get("body");
             if (bodyStr == null || bodyStr.isBlank()) {
                 return errorResponse(400, "Request body is required");
             }
 
             JsonNode body = objectMapper.readTree(bodyStr);
-
             String invoiceId = textOrNull(body, "invoiceId");
             String decision  = textOrNull(body, "decision");
             String reviewer  = textOrNull(body, "reviewer");
             String reason    = textOrNull(body, "reason");
 
-            // ── Validate ───────────────────────────────────────────────────────
+            // ── Validate ──────────────────────────────────────────────────────
             if (invoiceId == null || invoiceId.isBlank()) {
                 return errorResponse(400, "invoiceId is required");
             }
@@ -78,36 +73,58 @@ public class ApproveRejectHandler
                 return errorResponse(400, "decision must be APPROVED or REJECTED");
             }
 
-            // ── Update DynamoDB ────────────────────────────────────────────────
-            Map<String, AttributeValue> key = new HashMap<>();
-            key.put("invoiceId", AttributeValue.builder().s(invoiceId).build());
+            // ── Run DynamoDB + SES in parallel ────────────────────────────────
+            // Both operations are independent — fire them concurrently so total
+            // latency ≈ max(dynamoMs, sesMs) instead of dynamoMs + sesMs.
+            final String fInvoiceId = invoiceId;
+            final String fDecision  = decision;
+            final String fReviewer  = reviewer;
+            final String fReason    = reason;
 
-            Map<String, AttributeValue> expressionValues = new HashMap<>();
-            expressionValues.put(":status",     AttributeValue.builder().s(decision).build());
-            expressionValues.put(":reviewedAt", AttributeValue.builder().s(Instant.now().toString()).build());
-            expressionValues.put(":reviewedBy", AttributeValue.builder().s(reviewer != null ? reviewer : "unknown").build());
-            expressionValues.put(":reason",     AttributeValue.builder().s(reason   != null ? reason   : "").build());
+            CompletableFuture<Void> dynamoFuture = CompletableFuture.runAsync(() -> {
+                Map<String, AttributeValue> key = new HashMap<>();
+                key.put("invoiceId", AttributeValue.builder().s(fInvoiceId).build());
 
-            // Write to reviewDecision – NOT validationStatus.
-            // validationStatus stays as the AI result (APPROVED / REVIEW_REQUIRED).
-            // reviewDecision is the human outcome (APPROVED / REJECTED).
-            dynamoDbClient.updateItem(UpdateItemRequest.builder()
-                    .tableName(DYNAMO_TABLE)
-                    .key(key)
-                    .updateExpression(
-                            "SET reviewDecision = :status, "
-                          + "    reviewedAt     = :reviewedAt, "
-                          + "    reviewedBy     = :reviewedBy, "
-                          + "    reviewNote     = :reason")
-                    .expressionAttributeValues(expressionValues)
-                    .build());
+                Map<String, AttributeValue> vals = new HashMap<>();
+                vals.put(":status",     AttributeValue.builder().s(fDecision).build());
+                vals.put(":reviewedAt", AttributeValue.builder().s(Instant.now().toString()).build());
+                vals.put(":reviewedBy", AttributeValue.builder().s(fReviewer != null ? fReviewer : "unknown").build());
+                vals.put(":reason",     AttributeValue.builder().s(fReason   != null ? fReason   : "").build());
+
+                dynamoDbClient.updateItem(UpdateItemRequest.builder()
+                        .tableName(DYNAMO_TABLE)
+                        .key(key)
+                        .updateExpression(
+                                "SET reviewDecision = :status, "
+                              + "    reviewedAt     = :reviewedAt, "
+                              + "    reviewedBy     = :reviewedBy, "
+                              + "    reviewNote     = :reason")
+                        .expressionAttributeValues(vals)
+                        .build());
+
+                context.getLogger().log("⏱ [TIMING] DynamoDB updateItem took: "
+                        + (System.currentTimeMillis() - start) + " ms");
+            });
+
+            CompletableFuture<Void> sesFuture = CompletableFuture.runAsync(() -> {
+                try {
+                    sendConfirmationEmail(fInvoiceId, fDecision, fReviewer, fReason, context);
+                    context.getLogger().log("⏱ [TIMING] SES email sent, elapsed: "
+                            + (System.currentTimeMillis() - start) + " ms");
+                } catch (Exception e) {
+                    context.getLogger().log("WARNING: SES email failed: " + e.getMessage());
+                }
+            });
+
+            // Wait for BOTH — with a 8s timeout (Lambda timeout is 15s)
+            // This guarantees SES is dispatched before Lambda freezes.
+            CompletableFuture.allOf(dynamoFuture, sesFuture).get(8, TimeUnit.SECONDS);
 
             context.getLogger().log("Updated invoice " + invoiceId + " → " + decision);
+            context.getLogger().log("⏱ [TIMING] ApproveRejectHandler TOTAL took: "
+                    + (System.currentTimeMillis() - start) + " ms");
 
-            // ── Send confirmation email ────────────────────────────────────────
-            sendConfirmationEmail(invoiceId, decision, reviewer, reason, context);
-
-            // ── Return success ─────────────────────────────────────────────────
+            // ── Return success ────────────────────────────────────────────────
             Map<String, Object> result = new HashMap<>();
             result.put("invoiceId",      invoiceId);
             result.put("reviewDecision", decision);

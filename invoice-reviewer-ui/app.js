@@ -109,7 +109,10 @@ async function loadQueue() {
   hide('rev-err'); show('rev-loading');
   try {
     const all   = await apiFetch('/invoices');
-    const queue = all.filter(i => i.validationStatus==='REVIEW_REQUIRED');
+    const queue = all.filter(i =>
+      i.validationStatus === 'REVIEW_REQUIRED' &&
+      (!i.reviewDecision || i.reviewDecision === '' || i.reviewDecision === 'undefined' || i.reviewDecision === 'PENDING')
+    );
     hide('rev-loading');
 
     const tbody = $('queue-tbody');
