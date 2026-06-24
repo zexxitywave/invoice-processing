@@ -42,7 +42,7 @@ public class ApproveRejectHandler
             .region(Region.AP_SOUTH_1).build();
 
     private final SesV2Client sesClient = SesV2Client.builder()
-            .region(Region.EU_NORTH_1).build();
+            .region(Region.AP_SOUTH_1).build();
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
