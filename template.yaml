@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+﻿AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: Invoice Processing System – Lambda + API Gateway
 
@@ -12,6 +12,7 @@ Globals:
     Environment:
       Variables:
         JAVA_TOOL_OPTIONS: "-XX:+TieredCompilation -XX:TieredStopAtLevel=1"
+        DYNAMO_TABLE: !Ref InvoicesTable
 
 Resources:
 
@@ -19,7 +20,6 @@ Resources:
   InvoicesTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: invoices
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: invoiceId
@@ -32,7 +32,6 @@ Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: invoice-lambda-role
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -82,33 +81,7 @@ Resources:
                   - s3:GetObject
                 Resource: !Sub "arn:aws:s3:::ses-inbound-emails-eu/*"
 
-  # ── S3 Bucket: SES raw email store (eu-west-1) ────────────────────────────
-  # Note: SES inbound receipt rules only work in us-east-1, us-west-2, eu-west-1.
-  # This bucket must be in the SAME region as your SES receipt rule.
-  # If you already created this bucket manually, remove this resource to avoid conflicts.
-  SesInboundBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: ses-inbound-emails-eu
-      # Allow SES to write to this bucket
-      # (bucket policy added separately below)
-
-  SesInboundBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref SesInboundBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: AllowSESPuts
-            Effect: Allow
-            Principal:
-              Service: ses.amazonaws.com
-            Action: s3:PutObject
-            Resource: !Sub "arn:aws:s3:::ses-inbound-emails-eu/*"
-            Condition:
-              StringEquals:
-                aws:Referer: !Sub "${AWS::AccountId}"
+  # ── S3 Bucket: SES raw email store already exists in eu-west-1 (created manually) ──────────────
 
   # ── Lambda: SES Inbound (triggered by SES receipt rule) ───────────────────
   SesInboundFunction:
@@ -159,7 +132,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref InvoiceApi
-            Path: /invoices
+            Path: /invoices/{id}
             Method: GET
 
   # ── Lambda: Approve / Reject (called by API Gateway) ──────────────────────
@@ -205,7 +178,6 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: rate(1 day)
-            Name: expired-review-cleanup-schedule
             Description: "Daily scan for invoices stuck in REVIEW_REQUIRED > 72h"
             Enabled: true
 
@@ -221,7 +193,6 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: cron(30 2 * * ? *)
-            Name: daily-digest-schedule
             Description: "Daily digest email at 08:00 IST"
             Enabled: true
 
@@ -240,7 +211,6 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: cron(0 2 ? * SUN *)
-            Name: weekly-s3-cleanup-schedule
             Description: "Weekly S3 PDF cleanup every Sunday at 02:00 UTC"
             Enabled: true
 

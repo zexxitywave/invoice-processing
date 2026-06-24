@@ -1,8 +1,14 @@
 package com.invoice.processing;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -10,11 +16,6 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * GetInvoiceHandler – called by API Gateway.
@@ -40,7 +41,8 @@ import java.util.Map;
 public class GetInvoiceHandler
         implements RequestHandler<Map<String, Object>, Map<String, Object>> {
 
-    private static final String DYNAMO_TABLE = "invoices";
+    private static final String DYNAMO_TABLE = System.getenv("DYNAMO_TABLE") != null
+            ? System.getenv("DYNAMO_TABLE") : "invoices";
 
     private final DynamoDbClient dynamoDbClient = DynamoDbClient.builder()
             .region(Region.AP_SOUTH_1).build();

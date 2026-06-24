@@ -42,7 +42,8 @@ public class InvoiceExtractionHandler
         implements RequestHandler<Map<String, Object>, Map<String, Object>> {
 
     // ── Configuration ──────────────────────────────────────────────────────────
-    private static final String DYNAMO_TABLE         = "invoices";
+    private static final String DYNAMO_TABLE         = System.getenv("DYNAMO_TABLE") != null
+            ? System.getenv("DYNAMO_TABLE") : "invoices";
     private static final double CONFIDENCE_THRESHOLD = 95.0;
 
     // Loaded once from Secrets Manager (with env-var fallback)

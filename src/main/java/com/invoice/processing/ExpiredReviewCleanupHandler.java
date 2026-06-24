@@ -1,17 +1,29 @@
 package com.invoice.processing;
 
-import com.amazonaws.services.lambda.runtime.Context;
-import com.amazonaws.services.lambda.runtime.RequestHandler;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.*;
-import software.amazon.awssdk.services.sesv2.SesV2Client;
-import software.amazon.awssdk.services.sesv2.model.*;
-
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+
+import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.RequestHandler;
+
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
+import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
+import software.amazon.awssdk.services.sesv2.SesV2Client;
+import software.amazon.awssdk.services.sesv2.model.Body;
+import software.amazon.awssdk.services.sesv2.model.Content;
+import software.amazon.awssdk.services.sesv2.model.Destination;
+import software.amazon.awssdk.services.sesv2.model.EmailContent;
+import software.amazon.awssdk.services.sesv2.model.Message;
+import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
 
 /**
  * ExpiredReviewCleanupHandler – runs daily via EventBridge.
@@ -28,7 +40,8 @@ import java.util.*;
 public class ExpiredReviewCleanupHandler
         implements RequestHandler<Map<String, Object>, String> {
 
-    private static final String DYNAMO_TABLE      = "invoices";
+    private static final String DYNAMO_TABLE      = System.getenv("DYNAMO_TABLE") != null
+            ? System.getenv("DYNAMO_TABLE") : "invoices";
     private static final long   EXPIRY_SECONDS    = 72 * 60 * 60L;   // 72 hours
     private static final String API_BASE_URL      = System.getenv("API_BASE_URL") != null
             ? System.getenv("API_BASE_URL")

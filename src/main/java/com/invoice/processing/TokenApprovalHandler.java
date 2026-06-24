@@ -1,19 +1,20 @@
 package com.invoice.processing;
 
+import java.time.Instant;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
-
-import java.time.Instant;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * TokenApprovalHandler – handles one-click Approve / Reject links embedded
@@ -34,7 +35,8 @@ import java.util.Map;
 public class TokenApprovalHandler
         implements RequestHandler<Map<String, Object>, Map<String, Object>> {
 
-    private static final String DYNAMO_TABLE         = "invoices";
+    private static final String DYNAMO_TABLE         = System.getenv("DYNAMO_TABLE") != null
+            ? System.getenv("DYNAMO_TABLE") : "invoices";
     private static final long   TOKEN_TTL_SECONDS    = 72 * 60 * 60L; // 72 hours
 
     private final DynamoDbClient dynamoDbClient = DynamoDbClient.builder()
