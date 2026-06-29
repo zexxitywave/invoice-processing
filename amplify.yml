@@ -3,12 +3,10 @@ frontend:
   phases:
     preBuild:
       commands:
-        - cd invoice-reviewer-react
-        - npm install
+        - cd invoice-reviewer-react && npm install
     build:
       commands:
-        - cd invoice-reviewer-react
-        - npm run build
+        - cd invoice-reviewer-react && npm run build
   artifacts:
     baseDirectory: invoice-reviewer-react/dist
     files:
