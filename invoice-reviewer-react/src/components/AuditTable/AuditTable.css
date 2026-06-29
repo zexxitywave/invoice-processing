@@ -1,0 +1,65 @@
+/* ==========================================================================
+   Audit Table
+   ========================================================================== */
+
+.audit-table{
+
+    width:100%;
+
+    border-collapse:separate;
+
+    border-spacing:0;
+
+}
+
+.audit-table thead{
+
+    background:#f8fafc;
+
+}
+
+.audit-table th{
+
+    padding:1.15rem 1.3rem;
+
+    text-align:left;
+
+    font-size:.82rem;
+
+    text-transform:uppercase;
+
+    letter-spacing:.06em;
+
+    color:var(--text-light);
+
+    font-weight:700;
+
+    border-bottom:1px solid var(--border);
+
+}
+
+.audit-table td{
+
+    padding:1.15rem 1.3rem;
+
+    border-bottom:1px solid #eef2f7;
+
+}
+
+.audit-table tbody tr{
+
+    transition:var(--transition);
+
+}
+
+.audit-table tbody tr:nth-child(even){
+
+    background:#fbfcff;
+
+}
+
+.audit-table tbody tr:hover{
+
+    background:#eef4ff;
+
+}

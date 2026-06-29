@@ -1,0 +1,167 @@
+/* ==========================================================================
+   Status Badge
+   ========================================================================== */
+
+.status-badge {
+
+    display: inline-flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    gap: .45rem;
+
+    padding: .45rem .9rem;
+
+    border-radius: 999px;
+
+    font-size: .78rem;
+
+    font-weight: 700;
+
+    letter-spacing: .03em;
+
+    white-space: nowrap;
+
+    border: 1px solid transparent;
+
+    transition: var(--transition);
+
+}
+
+.status-badge:hover {
+
+    transform: translateY(-1px);
+
+}
+
+/* ======================================================
+   AI Status
+====================================================== */
+
+.status-badge--ai.status-badge--approved {
+
+    background: #ecfdf5;
+
+    color: #047857;
+
+    border-color: #a7f3d0;
+
+}
+
+.status-badge--ai.status-badge--review-required {
+
+    background: #fffbeb;
+
+    color: #b45309;
+
+    border-color: #fde68a;
+
+}
+
+.status-badge--ai.status-badge--duplicate {
+
+    background: #f5f3ff;
+
+    color: #7c3aed;
+
+    border-color: #d8b4fe;
+
+}
+
+/* ======================================================
+   Risk
+====================================================== */
+
+.status-badge--risk.status-badge--low {
+
+    background: #ecfdf5;
+
+    color: #047857;
+
+    border-color: #a7f3d0;
+
+}
+
+.status-badge--risk.status-badge--medium {
+
+    background: #fff7ed;
+
+    color: #c2410c;
+
+    border-color: #fdba74;
+
+}
+
+.status-badge--risk.status-badge--high {
+
+    background: #fef2f2;
+
+    color: #dc2626;
+
+    border-color: #fca5a5;
+
+}
+
+/* ======================================================
+   Human Review
+====================================================== */
+
+.status-badge--human.status-badge--approved {
+
+    background: #ecfdf5;
+
+    color: #047857;
+
+    border-color: #a7f3d0;
+
+}
+
+.status-badge--human.status-badge--rejected {
+
+    background: #fef2f2;
+
+    color: #dc2626;
+
+    border-color: #fca5a5;
+
+}
+
+.status-badge--human.status-badge--pending {
+
+    background: #f8fafc;
+
+    color: #475569;
+
+    border-color: #cbd5e1;
+
+}
+
+/* ======================================================
+   Default
+====================================================== */
+
+.status-badge--default {
+
+    background: #f8fafc;
+
+    color: #475569;
+
+    border-color: #e2e8f0;
+
+}
+
+.status-dot {
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    font-size: .7rem;
+
+    line-height: 1;
+
+}

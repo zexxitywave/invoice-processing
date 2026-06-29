@@ -1,0 +1,67 @@
+.decision-form{
+
+    margin-top:2rem;
+
+    padding-top:2rem;
+
+    border-top:1px solid var(--border);
+
+}
+
+.decision-form h3{
+
+    margin-bottom:1.5rem;
+
+}
+
+.decision-buttons{
+
+    display:flex;
+
+    gap:1rem;
+
+    margin-top:2rem;
+
+}
+
+.btn-approve{
+
+    flex:1;
+
+    background:linear-gradient(135deg,#22c55e,#16a34a);
+
+    color:#fff;
+
+}
+
+.btn-approve:hover{
+
+    transform:translateY(-2px);
+
+}
+
+.btn-reject{
+
+    flex:1;
+
+    background:linear-gradient(135deg,#ef4444,#dc2626);
+
+    color:#fff;
+
+}
+
+.btn-reject:hover{
+
+    transform:translateY(-2px);
+
+}
+
+@media(max-width:768px){
+
+.decision-buttons{
+
+flex-direction:column;
+
+}
+
+}

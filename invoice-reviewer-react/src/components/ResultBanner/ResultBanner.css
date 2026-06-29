@@ -1,0 +1,103 @@
+/* ==========================================================================
+   Result Banner
+   ========================================================================== */
+
+.result-banner{
+
+    display:flex;
+
+    align-items:flex-start;
+
+    gap:1rem;
+
+    margin:1.5rem;
+
+    padding:1.2rem 1.4rem;
+
+    border-radius:18px;
+
+    border:1px solid transparent;
+
+    font-size:.95rem;
+
+    font-weight:500;
+
+    line-height:1.6;
+
+    white-space:pre-line;
+
+    animation:bannerFade .35s ease;
+
+}
+
+/* ======================================================
+   Success
+====================================================== */
+
+.result-banner.success{
+
+    background:#ecfdf5;
+
+    color:#065f46;
+
+    border-color:#a7f3d0;
+
+    box-shadow:0 10px 25px rgba(16,185,129,.08);
+
+}
+
+/* ======================================================
+   Error
+====================================================== */
+
+.result-banner.error{
+
+    background:#fef2f2;
+
+    color:#991b1b;
+
+    border-color:#fecaca;
+
+    box-shadow:0 10px 25px rgba(239,68,68,.08);
+
+}
+
+/* ======================================================
+   Animation
+====================================================== */
+
+@keyframes bannerFade{
+
+    from{
+
+        opacity:0;
+
+        transform:translateY(-10px);
+
+    }
+
+    to{
+
+        opacity:1;
+
+        transform:none;
+
+    }
+
+}
+
+/* ======================================================
+   Mobile
+====================================================== */
+
+@media(max-width:768px){
+
+.result-banner{
+
+margin:1rem;
+
+font-size:.9rem;
+
+}
+
+}

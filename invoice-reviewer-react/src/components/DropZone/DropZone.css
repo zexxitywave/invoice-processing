@@ -1,0 +1,242 @@
+/* ==========================================================================
+   Drop Zone
+   ========================================================================== */
+
+.drop-zone {
+
+    position: relative;
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: center;
+
+    justify-content: center;
+
+    gap: .9rem;
+
+    min-height: 300px;
+
+    margin: 2rem;
+
+    padding: 2.5rem;
+
+    border: 3px dashed #cbd5e1;
+
+    border-radius: 24px;
+
+    background:
+        linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
+
+    transition: var(--transition);
+
+    cursor: pointer;
+
+    overflow: hidden;
+
+}
+
+/* Decorative background */
+
+.drop-zone::before{
+
+    content:"";
+
+    position:absolute;
+
+    width:320px;
+
+    height:320px;
+
+    border-radius:50%;
+
+    background:rgba(99,102,241,.06);
+
+    top:-150px;
+
+    right:-120px;
+
+    transition:var(--transition);
+
+}
+
+.drop-zone::after{
+
+    content:"";
+
+    position:absolute;
+
+    width:260px;
+
+    height:260px;
+
+    border-radius:50%;
+
+    background:rgba(59,130,246,.05);
+
+    bottom:-140px;
+
+    left:-120px;
+
+}
+
+/* Hover */
+
+.drop-zone:hover{
+
+    border-color:var(--primary);
+
+    transform:translateY(-4px);
+
+    box-shadow:0 18px 40px rgba(79,70,229,.12);
+
+}
+
+.drop-zone:hover::before{
+
+    transform:scale(1.15);
+
+}
+
+/* Dragging */
+
+.drop-zone.dragover{
+
+    border-color:var(--primary);
+
+    background:#eef4ff;
+
+    box-shadow:0 20px 50px rgba(79,70,229,.20);
+
+}
+
+/* Files Selected */
+
+.drop-zone.has-files{
+
+    border-color:#10b981;
+
+    background:#f0fdf4;
+
+}
+
+/* ==========================================================================
+   Icon
+   ========================================================================== */
+
+.drop-icon{
+
+    width:90px;
+
+    height:90px;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    border-radius:24px;
+
+    background:var(--gradient-primary);
+
+    color:#fff;
+
+    font-size:2.6rem;
+
+    box-shadow:0 18px 35px rgba(79,70,229,.28);
+
+    z-index:2;
+
+}
+
+/* ==========================================================================
+   Text
+   ========================================================================== */
+
+.drop-title{
+
+    font-size:1.35rem;
+
+    font-weight:700;
+
+    color:var(--text);
+
+    z-index:2;
+
+}
+
+.drop-sub{
+
+    max-width:460px;
+
+    text-align:center;
+
+    color:var(--text-light);
+
+    line-height:1.7;
+
+    font-size:.95rem;
+
+    z-index:2;
+
+}
+
+/* ==========================================================================
+   Browse Button
+   ========================================================================== */
+
+.drop-zone .btn{
+
+    margin-top:.6rem;
+
+    z-index:2;
+
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media(max-width:768px){
+
+    .drop-zone{
+
+        min-height:240px;
+
+        margin:1rem;
+
+        padding:2rem 1.5rem;
+
+    }
+
+    .drop-icon{
+
+        width:70px;
+
+        height:70px;
+
+        font-size:2rem;
+
+    }
+
+    .drop-title{
+
+        font-size:1.15rem;
+
+    }
+
+}
+
+.drop-note{
+
+    margin-top:.8rem;
+
+    color:var(--text-light);
+
+    font-size:.82rem;
+
+    z-index:2;
+
+}

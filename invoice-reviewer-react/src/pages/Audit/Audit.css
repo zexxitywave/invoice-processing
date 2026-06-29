@@ -1,0 +1,177 @@
+/* ==========================================================================
+   Audit Page
+   ========================================================================== */
+
+.audit-header{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    gap:2rem;
+
+    margin-bottom:2.5rem;
+
+    flex-wrap:wrap;
+
+}
+
+.audit-header>div{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:.45rem;
+
+}
+
+.audit-actions{
+
+    display:flex;
+
+    gap:1rem;
+
+}
+
+.audit-actions .btn{
+
+    min-width:160px;
+
+}
+
+/* ==========================================================================
+   Filters
+   ========================================================================== */
+
+.audit-filters{
+
+    margin-bottom:2rem;
+
+    animation:fadeUp .45s ease;
+
+}
+
+.filter-grid{
+
+    display:grid;
+
+    grid-template-columns:2fr 1fr 1fr;
+
+    gap:1.2rem;
+
+    padding:1.5rem;
+
+}
+
+.filter-input,
+.filter-select{
+
+    border-radius:14px;
+
+    transition:var(--transition);
+
+}
+
+.filter-input:hover,
+.filter-select:hover{
+
+    border-color:var(--primary);
+
+}
+
+/* ==========================================================================
+   Table
+   ========================================================================== */
+
+.audit-table-card{
+
+    animation:fadeUp .55s ease;
+
+}
+
+.table-count{
+
+    background:#eef2ff;
+
+    color:var(--primary);
+
+    padding:.45rem .9rem;
+
+    border-radius:999px;
+
+    font-size:.82rem;
+
+    font-weight:700;
+
+}
+
+/* ==========================================================================
+   Animation
+   ========================================================================== */
+
+@keyframes fadeUp{
+
+    from{
+
+        opacity:0;
+
+        transform:translateY(18px);
+
+    }
+
+    to{
+
+        opacity:1;
+
+        transform:none;
+
+    }
+
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media(max-width:992px){
+
+.audit-header{
+
+flex-direction:column;
+
+align-items:stretch;
+
+}
+
+.audit-actions{
+
+width:100%;
+
+}
+
+.audit-actions .btn{
+
+flex:1;
+
+}
+
+.filter-grid{
+
+grid-template-columns:1fr;
+
+}
+
+}
+
+@media(max-width:576px){
+
+.audit-actions{
+
+flex-direction:column;
+
+}
+
+}

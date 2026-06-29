@@ -1,0 +1,249 @@
+/* ==========================================================================
+   Metric Card
+   ========================================================================== */
+
+.metric-card {
+
+    position: relative;
+
+    overflow: hidden;
+
+    background: rgba(255,255,255,.95);
+
+    backdrop-filter: blur(16px);
+
+    border-radius: 22px;
+
+    padding: 1.8rem;
+
+    border: 1px solid rgba(255,255,255,.8);
+
+    box-shadow: var(--shadow);
+
+    transition: var(--transition);
+
+    isolation: isolate;
+
+}
+
+.metric-card::before{
+
+    content:"";
+
+    position:absolute;
+
+    inset:0;
+
+    opacity:.08;
+
+    z-index:-1;
+
+    transition:var(--transition);
+
+}
+
+.metric-card:hover{
+
+    transform:translateY(-8px);
+
+    box-shadow:var(--shadow-lg);
+
+}
+
+.metric-card:hover::before{
+
+    opacity:.16;
+
+}
+
+/* ===============================
+   Header
+================================= */
+
+.metric-header{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:flex-start;
+
+    margin-bottom:1.4rem;
+
+}
+
+.metric-title{
+
+    font-size:.92rem;
+
+    font-weight:700;
+
+    color:var(--text-light);
+
+    text-transform:uppercase;
+
+    letter-spacing:.08em;
+
+}
+
+.metric-icon{
+
+    width:56px;
+
+    height:56px;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    border-radius:18px;
+
+    font-size:1.55rem;
+
+    background:#ffffff;
+
+    box-shadow:0 10px 20px rgba(15,23,42,.08);
+
+}
+
+/* ===============================
+   Value
+================================= */
+
+.metric-value{
+
+    font-size:2.4rem;
+
+    font-weight:800;
+
+    line-height:1;
+
+    color:var(--text);
+
+    margin-bottom:.55rem;
+
+}
+
+.metric-subtitle{
+
+    font-size:.88rem;
+
+    color:var(--text-light);
+
+}
+
+/* ===============================
+   Variants
+================================= */
+
+.metric-card.approved{
+
+    border-top:5px solid #10b981;
+
+}
+
+.metric-card.approved::before{
+
+    background:var(--gradient-success);
+
+}
+
+.metric-card.approved .metric-icon{
+
+    color:#10b981;
+
+    background:#ecfdf5;
+
+}
+
+.metric-card.review{
+
+    border-top:5px solid #f59e0b;
+
+}
+
+.metric-card.review::before{
+
+    background:var(--gradient-warning);
+
+}
+
+.metric-card.review .metric-icon{
+
+    color:#f59e0b;
+
+    background:#fffbeb;
+
+}
+
+.metric-card.duplicate{
+
+    border-top:5px solid #ef4444;
+
+}
+
+.metric-card.duplicate::before{
+
+    background:var(--gradient-danger);
+
+}
+
+.metric-card.duplicate .metric-icon{
+
+    color:#ef4444;
+
+    background:#fef2f2;
+
+}
+
+.metric-card.total{
+
+    border-top:5px solid #4f46e5;
+
+}
+
+.metric-card.total::before{
+
+    background:var(--gradient-primary);
+
+}
+
+.metric-card.total .metric-icon{
+
+    color:#4f46e5;
+
+    background:#eef2ff;
+
+}
+
+/* ===============================
+   Responsive
+================================= */
+
+@media (max-width:768px){
+
+.metric-card{
+
+padding:1.4rem;
+
+}
+
+.metric-value{
+
+font-size:2rem;
+
+}
+
+.metric-icon{
+
+width:48px;
+
+height:48px;
+
+font-size:1.35rem;
+
+}
+
+}

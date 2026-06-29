@@ -1,0 +1,45 @@
+.error-banner{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:.8rem;
+
+    padding:1rem 1.25rem;
+
+    margin-bottom:1.5rem;
+
+    border-radius:16px;
+
+    background:#fef2f2;
+
+    border:1px solid #fecaca;
+
+    color:#b91c1c;
+
+    font-weight:600;
+
+    animation:errorFade .3s ease;
+
+}
+
+@keyframes errorFade{
+
+from{
+
+opacity:0;
+
+transform:translateY(-10px);
+
+}
+
+to{
+
+opacity:1;
+
+transform:none;
+
+}
+
+}

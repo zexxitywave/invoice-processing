@@ -1,0 +1,105 @@
+/* ==========================================================================
+   InvoiceAI Pro Design System
+   ========================================================================== */
+
+/* ===============================
+   COLORS
+================================= */
+
+:root {
+
+  /* Brand */
+
+  --primary: #4f46e5;
+  --primary-dark: #4338ca;
+  --primary-light: #eef2ff;
+
+  --secondary: #7c3aed;
+
+  --accent: #06b6d4;
+
+  /* Status */
+
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+
+  /* Background */
+
+  --bg: #f4f7fc;
+
+  --surface: #ffffff;
+
+  --surface-hover: #fafcff;
+
+  /* Text */
+
+  --text: #0f172a;
+
+  --text-light: #64748b;
+
+  /* Border */
+
+  --border: #e2e8f0;
+
+  /* Radius */
+
+  --radius-xs: 8px;
+
+  --radius-sm: 12px;
+
+  --radius: 18px;
+
+  --radius-lg: 24px;
+
+  /* Shadows */
+
+  --shadow-sm:
+      0 2px 8px rgba(15,23,42,.06);
+
+  --shadow:
+      0 10px 35px rgba(15,23,42,.08);
+
+  --shadow-lg:
+      0 20px 60px rgba(15,23,42,.12);
+
+  /* Animation */
+
+  --transition:
+      all .28s cubic-bezier(.4,0,.2,1);
+
+  /* Width */
+
+  --container: 1440px;
+
+  /* Gradient */
+
+  --gradient-primary:
+      linear-gradient(
+          135deg,
+          #4f46e5,
+          #6366f1
+      );
+
+  --gradient-success:
+      linear-gradient(
+          135deg,
+          #10b981,
+          #34d399
+      );
+
+  --gradient-warning:
+      linear-gradient(
+          135deg,
+          #f59e0b,
+          #fbbf24
+      );
+
+  --gradient-danger:
+      linear-gradient(
+          135deg,
+          #ef4444,
+          #fb7185
+      );
+
+}

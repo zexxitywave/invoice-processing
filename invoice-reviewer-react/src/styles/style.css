@@ -1,0 +1,371 @@
+/* ==========================================================================
+   Global Styles
+   ========================================================================== */
+
+@import "./variables.css";
+
+/* ---------- Reset ---------- */
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ---------- Body ---------- */
+
+body {
+  font-family: "Inter", sans-serif;
+
+  background:
+    radial-gradient(circle at top right, #eef2ff 0%, transparent 28%),
+    radial-gradient(circle at bottom left, #e0f2fe 0%, transparent 22%),
+    var(--bg);
+
+  color: var(--text);
+
+  line-height: 1.6;
+
+  -webkit-font-smoothing: antialiased;
+
+  overflow-x: hidden;
+
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/* ---------- Container ---------- */
+
+.container {
+  width: min(var(--container), 94%);
+  margin: 2.5rem auto 3rem;
+}
+/* ---------- Page ---------- */
+
+.page-title {
+  font-size: 2.6rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  margin-bottom: .35rem;
+}
+
+.page-subtitle {
+  font-size: 1rem;
+  color: var(--text-light);
+  margin-bottom: 2rem;
+}
+
+/* ---------- Card ---------- */
+
+.card {
+  background: rgba(255,255,255,.92);
+
+  backdrop-filter: blur(16px);
+
+  border: 1px solid rgba(255,255,255,.75);
+
+  border-radius: var(--radius);
+
+  box-shadow: var(--shadow);
+
+  overflow: hidden;
+
+  margin-bottom: 2rem;
+
+  transition: var(--transition);
+}
+
+.card:hover{
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-lg);
+}
+
+.card-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+
+  padding:1.3rem 1.8rem;
+
+  border-bottom:1px solid var(--border);
+
+  background:rgba(248,250,252,.7);
+}
+
+.card-header h2{
+  font-size:1.15rem;
+  font-weight:700;
+}
+/* ---------- Buttons ---------- */
+
+.btn{
+
+  border:none;
+
+  border-radius:14px;
+
+  padding:.82rem 1.4rem;
+
+  font-weight:600;
+
+  transition:var(--transition);
+
+}
+
+.btn:hover:not(:disabled){
+
+  transform:translateY(-2px);
+
+}
+
+.btn:disabled{
+
+  opacity:.55;
+
+  cursor:not-allowed;
+
+}
+
+.btn-primary{
+
+  background:var(--gradient-primary);
+
+  color:#fff;
+
+  box-shadow:0 12px 28px rgba(79,70,229,.28);
+
+}
+
+.btn-primary:hover:not(:disabled){
+
+  filter:brightness(1.05);
+
+}
+
+.btn-secondary{
+
+  background:#fff;
+
+  color:var(--text);
+
+  border:1px solid var(--border);
+
+  box-shadow:var(--shadow-sm);
+
+}
+
+.btn-secondary:hover:not(:disabled){
+
+  background:#f8fafc;
+
+}
+
+.btn-sm{
+
+  padding:.55rem 1rem;
+
+  font-size:.9rem;
+
+}
+/* ---------- Forms ---------- */
+
+input,
+textarea,
+select{
+
+  width:100%;
+
+  padding:.9rem 1rem;
+
+  border:1px solid var(--border);
+
+  border-radius:14px;
+
+  background:#fff;
+
+  transition:var(--transition);
+
+}
+
+input:focus,
+textarea:focus,
+select:focus{
+
+  outline:none;
+
+  border-color:var(--primary);
+
+  box-shadow:0 0 0 4px rgba(79,70,229,.12);
+
+}
+
+/* ---------- Tables ---------- */
+
+.table-wrapper{
+  overflow:auto;
+}
+
+table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+}
+
+thead{
+  background:#f8fafc;
+}
+
+th{
+
+  color:var(--text-light);
+
+  text-transform:uppercase;
+
+  letter-spacing:.05em;
+
+  font-size:.8rem;
+
+  font-weight:700;
+
+}
+
+th,
+td{
+
+  padding:1rem 1.2rem;
+
+  text-align:left;
+
+}
+
+tbody tr{
+
+  transition:var(--transition);
+
+}
+
+tbody tr:nth-child(even){
+
+  background:#fbfcff;
+
+}
+
+tbody tr:hover{
+
+  background:#eef4ff;
+
+}
+
+/* ---------- Utilities ---------- */
+
+.text-center {
+  text-align: center;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.flex {
+  display: flex;
+}
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mt-1 {
+  margin-top: 1rem;
+}
+
+.mt-2 {
+  margin-top: 2rem;
+}
+
+/* ---------- Scrollbar ---------- */
+
+::-webkit-scrollbar{
+
+  width:10px;
+
+}
+
+::-webkit-scrollbar-thumb{
+
+  background:#cbd5e1;
+
+  border-radius:999px;
+
+}
+
+::-webkit-scrollbar-thumb:hover{
+
+  background:#94a3b8;
+
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width:1024px){
+
+.container{
+
+width:96%;
+
+}
+
+}
+
+@media (max-width:768px){
+
+.container{
+
+width:95%;
+
+margin:1.5rem auto 2rem;
+
+}
+
+.page-title{
+
+font-size:2rem;
+
+}
+
+.card-header{
+
+flex-direction:column;
+
+align-items:flex-start;
+
+gap:.75rem;
+
+}
+
+.btn{
+
+width:100%;
+
+}
+
+}

@@ -1,0 +1,155 @@
+/* ==========================================================================
+   Review Page
+   ========================================================================== */
+
+.review-header{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    gap:2rem;
+
+    margin-bottom:2.5rem;
+
+    flex-wrap:wrap;
+
+}
+
+.review-header>div{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:.45rem;
+
+}
+
+.review-header .btn{
+
+    min-width:170px;
+
+}
+
+/* ==========================================================================
+   Review Table
+   ========================================================================== */
+
+.review-table-card{
+
+    animation:fadeUp .45s ease;
+
+}
+
+/* ==========================================================================
+   Decision Banner
+   ========================================================================== */
+
+.decision-complete{
+
+    margin-top:2rem;
+
+    padding:1.25rem 1.5rem;
+
+    border-radius:18px;
+
+    font-weight:700;
+
+    display:flex;
+
+    align-items:center;
+
+    gap:.75rem;
+
+    animation:fadeUp .35s ease;
+
+}
+
+.decision-complete.approved{
+
+    background:#ecfdf5;
+
+    color:#047857;
+
+    border:1px solid #a7f3d0;
+
+}
+
+.decision-complete.rejected{
+
+    background:#fef2f2;
+
+    color:#b91c1c;
+
+    border:1px solid #fecaca;
+
+}
+
+/* ==========================================================================
+   Table Count
+   ========================================================================== */
+
+.table-count{
+
+    background:#eef2ff;
+
+    color:var(--primary);
+
+    padding:.45rem .9rem;
+
+    border-radius:999px;
+
+    font-size:.82rem;
+
+    font-weight:700;
+
+}
+
+/* ==========================================================================
+   Animation
+   ========================================================================== */
+
+@keyframes fadeUp{
+
+    from{
+
+        opacity:0;
+
+        transform:translateY(18px);
+
+    }
+
+    to{
+
+        opacity:1;
+
+        transform:none;
+
+    }
+
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media(max-width:768px){
+
+.review-header{
+
+flex-direction:column;
+
+align-items:stretch;
+
+}
+
+.review-header .btn{
+
+width:100%;
+
+}
+
+}

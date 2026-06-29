@@ -1,0 +1,227 @@
+/* ==========================================================================
+   Dashboard
+   ========================================================================== */
+
+.dashboard-header{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    gap:2rem;
+
+    margin-bottom:2.5rem;
+
+    flex-wrap:wrap;
+
+}
+
+.dashboard-header > div{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:.45rem;
+
+}
+
+.dashboard-header .btn{
+
+    min-width:170px;
+
+    height:52px;
+
+}
+
+/* ==========================================================================
+   Metrics
+   ========================================================================== */
+
+.metrics-grid{
+
+    display:grid;
+
+    grid-template-columns:repeat(4,1fr);
+
+    gap:1.8rem;
+
+    margin-bottom:2.5rem;
+
+}
+
+.metrics-grid .metric-card{
+
+    min-height:190px;
+
+    animation:cardFade .45s ease;
+
+}
+
+/* ==========================================================================
+   Dashboard Table
+   ========================================================================== */
+
+.dashboard-table{
+
+    animation:tableFade .55s ease;
+
+}
+
+.dashboard-table .card{
+
+    padding:0;
+
+}
+
+.dashboard-table .card-header{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+}
+
+.table-count{
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    min-width:90px;
+
+    padding:.45rem 1rem;
+
+    border-radius:999px;
+
+    background:#eef2ff;
+
+    color:var(--primary);
+
+    font-weight:700;
+
+    font-size:.85rem;
+
+}
+
+/* ==========================================================================
+   Animation
+   ========================================================================== */
+
+@keyframes cardFade{
+
+    from{
+
+        opacity:0;
+
+        transform:translateY(18px);
+
+    }
+
+    to{
+
+        opacity:1;
+
+        transform:none;
+
+    }
+
+}
+
+@keyframes tableFade{
+
+    from{
+
+        opacity:0;
+
+        transform:translateY(28px);
+
+    }
+
+    to{
+
+        opacity:1;
+
+        transform:none;
+
+    }
+
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media(max-width:1200px){
+
+.metrics-grid{
+
+grid-template-columns:repeat(2,1fr);
+
+}
+
+}
+
+@media(max-width:768px){
+
+.dashboard-header{
+
+flex-direction:column;
+
+align-items:stretch;
+
+}
+
+.dashboard-header .btn{
+
+width:100%;
+
+}
+
+.metrics-grid{
+
+grid-template-columns:1fr;
+
+gap:1.25rem;
+
+}
+
+.metrics-grid .metric-card{
+
+min-height:170px;
+
+}
+
+}
+
+@media(max-width:576px){
+
+.dashboard-header{
+
+gap:1.5rem;
+
+}
+
+.dashboard-table .card-header{
+
+flex-direction:column;
+
+align-items:flex-start;
+
+gap:.75rem;
+
+}
+
+.table-count{
+
+width:100%;
+
+}
+
+}

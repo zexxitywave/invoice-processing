@@ -1,0 +1,301 @@
+/* ==========================================================================
+   Upload Page
+   ========================================================================== */
+
+.upload-page-header{
+    margin-bottom:2rem;
+}
+
+.upload-grid{
+
+    display:grid;
+
+    grid-template-columns:1.2fr .8fr;
+
+    gap:2rem;
+
+    align-items:start;
+
+    margin-bottom:2rem;
+
+}
+
+/* ==========================================================================
+   Upload Card
+   ========================================================================== */
+
+.upload-card{
+
+    margin:0;
+
+}
+
+.queue-count{
+
+    display:inline-flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    padding:.45rem .9rem;
+
+    border-radius:999px;
+
+    background:#eef2ff;
+
+    color:var(--primary);
+
+    font-size:.82rem;
+
+    font-weight:700;
+
+}
+
+/* ==========================================================================
+   Selected Files
+   ========================================================================== */
+
+.upload-files{
+
+    margin-bottom:2rem;
+
+}
+
+/* ==========================================================================
+   Upload Actions
+   ========================================================================== */
+
+.upload-actions{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:1rem;
+
+    padding:1.5rem;
+
+    border-top:1px solid var(--border);
+
+    flex-wrap:wrap;
+
+}
+
+.upload-actions .btn{
+
+    min-width:170px;
+
+}
+
+.upload-summary{
+
+    margin-left:auto;
+
+    font-size:.9rem;
+
+    font-weight:600;
+
+    color:var(--text-light);
+
+}
+
+/* ==========================================================================
+   Pipeline
+   ========================================================================== */
+
+.upload-info{
+
+    margin:0;
+
+}
+
+.info-box{
+
+    padding:1.6rem;
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:1.2rem;
+
+}
+
+.pipeline-step{
+
+    display:flex;
+
+    align-items:flex-start;
+
+    gap:1rem;
+
+    padding:1rem;
+
+    border-radius:16px;
+
+    transition:var(--transition);
+
+}
+
+.pipeline-step:hover{
+
+    background:#f8fafc;
+
+    transform:translateX(4px);
+
+}
+
+.pipeline-icon{
+
+    width:44px;
+
+    height:44px;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    border-radius:14px;
+
+    background:#eef2ff;
+
+    font-size:1.2rem;
+
+    flex-shrink:0;
+
+}
+
+.pipeline-step strong{
+
+    display:block;
+
+    color:var(--text);
+
+    margin-bottom:.3rem;
+
+}
+
+.pipeline-step p{
+
+    color:var(--text-light);
+
+    font-size:.9rem;
+
+    line-height:1.6;
+
+}
+
+.pipeline-footer{
+
+    margin-top:.75rem;
+
+    padding:1rem;
+
+    border-top:1px solid var(--border);
+
+    font-size:.92rem;
+
+    color:var(--text-light);
+
+}
+
+.pipeline-footer strong{
+
+    color:var(--primary);
+
+}
+
+/* ==========================================================================
+   Animation
+   ========================================================================== */
+
+.upload-card,
+.upload-info,
+.upload-files{
+
+    animation:uploadFade .45s ease;
+
+}
+
+@keyframes uploadFade{
+
+    from{
+
+        opacity:0;
+
+        transform:translateY(20px);
+
+    }
+
+    to{
+
+        opacity:1;
+
+        transform:none;
+
+    }
+
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media(max-width:1100px){
+
+    .upload-grid{
+
+        grid-template-columns:1fr;
+
+    }
+
+}
+
+@media(max-width:768px){
+
+    .upload-actions{
+
+        flex-direction:column;
+
+        align-items:stretch;
+
+    }
+
+    .upload-actions .btn{
+
+        width:100%;
+
+    }
+
+    .upload-summary{
+
+        margin:0;
+
+        text-align:center;
+
+    }
+
+}
+
+@media(max-width:576px){
+
+    .pipeline-step{
+
+        flex-direction:column;
+
+        align-items:flex-start;
+
+    }
+
+    .pipeline-icon{
+
+        width:38px;
+
+        height:38px;
+
+    }
+
+}
