@@ -503,7 +503,7 @@ Return ONLY valid JSON – no markdown fences, no extra text.
             String approveLink = apiBase + "/invoices/approve?token=" + approveToken;
             String rejectLink  = apiBase + "/invoices/reject?token="  + rejectToken;
             String reviewUrl   = cfg.getFrontendUrl()
-                    + "/review.html?id=" + invoiceId.replace("#", "%23").trim();
+                    + "/review?id=" + invoiceId.replace("#", "%23").trim();
 
             String subject = "⚠️ Invoice Requires Manual Review – ID: " + invoiceId;
             String body = String.format(

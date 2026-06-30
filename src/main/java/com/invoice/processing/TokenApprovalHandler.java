@@ -76,8 +76,8 @@ public class TokenApprovalHandler
             if (payload.exp < Instant.now().getEpochSecond()) {
                 return htmlResponse(400, "Link Expired",
                         "⏰ This approval link has expired (72-hour limit).\n\nPlease log in to "
-                        + "<a href=\"https://www.zexxity.online/review.html?id="
-                        + encode(payload.invoiceId) + "\">the reviewer dashboard</a> to take action.",
+                        + "<a href=\"https://zexxity.online/review\">"
+                        + "the reviewer dashboard</a> to take action.",
                         "#fef3c7", "#b45309");
             }
 
@@ -101,8 +101,7 @@ public class TokenApprovalHandler
                             "Already Decided",
                             "ℹ️ Invoice <strong>" + payload.invoiceId + "</strong> was already "
                             + rd.s() + ".<br><br>"
-                            + "<a href=\"https://www.zexxity.online/review.html?id="
-                            + encode(payload.invoiceId) + "\">View in dashboard →</a>",
+                            + "<a href=\"https://zexxity.online/review\">View in dashboard →</a>",
                             "#fef3c7", "#b45309");
                 }
             }
@@ -136,7 +135,7 @@ public class TokenApprovalHandler
                     + " Invoice <strong>" + payload.invoiceId + "</strong> has been "
                     + "<strong>" + payload.decision + "</strong>.<br><br>"
                     + "This has been recorded in the system.<br><br>"
-                    + "<a href=\"https://www.zexxity.online/index.html\" "
+                    + "<a href=\"https://zexxity.online\" "
                     + "style=\"color:#6366f1;font-weight:700\">← Back to Dashboard</a>",
                     approved ? "#f0fdf4" : "#fff1f2",
                     approved ? "#15803d" : "#be123c");

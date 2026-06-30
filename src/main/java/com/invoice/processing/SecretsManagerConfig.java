@@ -31,7 +31,7 @@ public class SecretsManagerConfig {
     private static final String DEFAULT_SENDER      = "noreply@zexxity.online";
     private static final String DEFAULT_REVIEWER    = "invydexter@gmail.com";
     private static final String DEFAULT_MODEL_ID    = "apac.amazon.nova-lite-v1:0";
-    private static final String DEFAULT_FRONTEND_URL = "https://www.zexxity.online";
+    private static final String DEFAULT_FRONTEND_URL = "https://zexxity.online";
 
     // ── Cached values ──────────────────────────────────────────────────────────
     private final String sesSender;

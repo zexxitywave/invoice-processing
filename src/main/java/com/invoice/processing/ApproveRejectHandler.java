@@ -116,16 +116,10 @@ public class ApproveRejectHandler
                 }
             });
 
-            // Wait ONLY for DynamoDB — critical operation must complete before responding.
-            // SES runs in the background; Lambda stays alive briefly after response to finish it.
-            // This drops response time from ~7s to ~300ms.
-            dynamoFuture.get(8, TimeUnit.SECONDS);
-
-            // Let SES finish async — log if it completes quickly, ignore if not
-            sesFuture.whenComplete((v, ex) -> {
-                if (ex != null) context.getLogger().log("WARNING: SES async failed: " + ex.getMessage());
-                else context.getLogger().log("⏱ [TIMING] SES completed async");
-            });
+            // Wait for BOTH DynamoDB AND SES to complete before returning.
+            // SES must finish before Lambda returns — otherwise the execution
+            // environment freezes and the async thread never completes.
+            CompletableFuture.allOf(dynamoFuture, sesFuture).get(15, TimeUnit.SECONDS);
 
             context.getLogger().log("Updated invoice " + invoiceId + " → " + decision);
             context.getLogger().log("⏱ [TIMING] ApproveRejectHandler TOTAL took: "
