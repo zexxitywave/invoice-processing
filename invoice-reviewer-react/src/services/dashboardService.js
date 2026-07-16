@@ -32,15 +32,19 @@ async function request(path, options = {}) {
 }
 
 /**
- * Returns all invoices.
+ * Returns one page of invoices.
+ * @param {number} pageSize
+ * @param {string|null} nextToken
  */
-export async function getInvoices() {
-  return request("/invoices");
+export async function getInvoices(pageSize = 20, nextToken = null) {
+  const params = new URLSearchParams({ pageSize });
+  if (nextToken) params.set("nextToken", nextToken);
+  return request(`/invoices?${params.toString()}`);
 }
 
 /**
  * Dashboard refresh.
  */
-export async function refreshDashboard() {
-  return getInvoices();
+export async function refreshDashboard(pageSize = 20, nextToken = null) {
+  return getInvoices(pageSize, nextToken);
 }

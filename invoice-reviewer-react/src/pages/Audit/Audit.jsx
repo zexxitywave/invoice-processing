@@ -21,6 +21,11 @@ export default function Audit() {
     loading,
     error,
     refresh,
+    goNext,
+    goPrev,
+    hasNext,
+    hasPrev,
+    pageNumber,
   } = useAudit();
 
   useEffect(() => {
@@ -176,6 +181,11 @@ export default function Audit() {
 
             <AuditTable
               invoices={filteredInvoices}
+              hasNext={hasNext}
+              hasPrev={hasPrev}
+              pageNumber={pageNumber}
+              onNext={goNext}
+              onPrev={goPrev}
             />
           </section>
         )}

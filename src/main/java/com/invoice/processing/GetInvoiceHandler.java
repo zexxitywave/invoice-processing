@@ -65,8 +65,23 @@ public class GetInvoiceHandler
                 // ── Single invoice lookup ──────────────────────────────────
                 return getById(invoiceId, context);
             } else {
-                // ── List all invoices (for dashboard / reviewer list view) ─
-                return listAll(context);
+                // ── Paginated list ─────────────────────────────────────────
+                int pageSize = 20;
+                String nextToken = null;
+
+                if (qsp instanceof Map) {
+                    String pageSizeStr = (String) ((Map<?, ?>) qsp).get("pageSize");
+                    String nextTokenStr = (String) ((Map<?, ?>) qsp).get("nextToken");
+                    if (pageSizeStr != null && !pageSizeStr.isBlank()) {
+                        try { pageSize = Math.min(100, Math.max(1, Integer.parseInt(pageSizeStr))); }
+                        catch (NumberFormatException ignored) {}
+                    }
+                    if (nextTokenStr != null && !nextTokenStr.isBlank()) {
+                        nextToken = nextTokenStr;
+                    }
+                }
+
+                return listPaged(pageSize, nextToken, context);
             }
 
         } catch (Exception e) {
@@ -96,42 +111,63 @@ public class GetInvoiceHandler
         return successResponse(invoice);
     }
 
-    // ── Scan all items with internal pagination ────────────────────────────────
-    // DynamoDB scan returns max 1 MB per call. For large tables we loop using
-    // ExclusiveStartKey until all pages are collected, then return the full list.
-    // A ?limit=N query param caps the result for callers that don't need everything.
+    // ── List invoices with cursor-based pagination ─────────────────────────────
+    // Supports:
+    //   GET /invoices                          → first page (default 20 items)
+    //   GET /invoices?pageSize=50              → first page, 50 items
+    //   GET /invoices?nextToken=<base64>       → next page using DynamoDB cursor
+    //
+    // Response:
+    // {
+    //   "items"    : [ ... ],
+    //   "nextToken": "<base64>" or null   (null = last page)
+    //   "pageSize" : 20,
+    //   "count"    : 18
+    // }
 
-    private Map<String, Object> listAll(Context ctx) throws Exception {
-        List<Map<String, Object>> invoices = new ArrayList<>();
+    private Map<String, Object> listPaged(int pageSize, String nextToken, Context ctx) throws Exception {
 
-        // Optional ?limit=N cap (e.g. review queue only needs REVIEW_REQUIRED items)
-        int limit = Integer.MAX_VALUE; // default: return all
+        ScanRequest.Builder builder = ScanRequest.builder()
+                .tableName(DYNAMO_TABLE)
+                .limit(pageSize);
 
-        Map<String, AttributeValue> lastKey = null;
-        int page = 0;
-
-        do {
-            ScanRequest.Builder builder = ScanRequest.builder()
-                    .tableName(DYNAMO_TABLE)
-                    .limit(100); // read 100 items per DynamoDB round-trip
-
-            if (lastKey != null) {
-                builder.exclusiveStartKey(lastKey);
+        // Decode the nextToken (Base64 encoded JSON of the DynamoDB LastEvaluatedKey)
+        if (nextToken != null && !nextToken.isBlank()) {
+            try {
+                String decoded = new String(java.util.Base64.getUrlDecoder().decode(nextToken));
+                Map<String, Object> keyMap = objectMapper.readValue(decoded, Map.class);
+                Map<String, AttributeValue> startKey = new HashMap<>();
+                keyMap.forEach((k, v) -> startKey.put(k, AttributeValue.builder().s(v.toString()).build()));
+                builder.exclusiveStartKey(startKey);
+            } catch (Exception e) {
+                ctx.getLogger().log("WARNING: invalid nextToken, ignoring: " + e.getMessage());
             }
+        }
 
-            ScanResponse resp = dynamoDbClient.scan(builder.build());
-            resp.items().forEach(item -> invoices.add(itemToMap(item)));
+        ScanResponse resp = dynamoDbClient.scan(builder.build());
 
-            lastKey = resp.lastEvaluatedKey().isEmpty() ? null : resp.lastEvaluatedKey();
-            page++;
+        List<Map<String, Object>> items = new ArrayList<>();
+        resp.items().forEach(item -> items.add(itemToMap(item)));
 
-            ctx.getLogger().log("GetInvoice: page " + page + " fetched "
-                    + resp.items().size() + " items (total so far: " + invoices.size() + ")");
+        // Encode the LastEvaluatedKey as a Base64 nextToken for the client
+        String newNextToken = null;
+        if (!resp.lastEvaluatedKey().isEmpty()) {
+            Map<String, String> keyMap = new HashMap<>();
+            resp.lastEvaluatedKey().forEach((k, v) -> keyMap.put(k, v.s()));
+            String json = objectMapper.writeValueAsString(keyMap);
+            newNextToken = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes());
+        }
 
-        } while (lastKey != null && invoices.size() < limit);
+        Map<String, Object> result = new HashMap<>();
+        result.put("items",     items);
+        result.put("nextToken", newNextToken);
+        result.put("pageSize",  pageSize);
+        result.put("count",     items.size());
 
-        ctx.getLogger().log("GetInvoice: listed " + invoices.size() + " invoices in " + page + " page(s)");
-        return successResponse(invoices);
+        ctx.getLogger().log("GetInvoice: returned " + items.size()
+                + " items, hasMore=" + (newNextToken != null));
+
+        return successResponse(result);
     }
 
     // ── DynamoDB item → plain Map ──────────────────────────────────────────────

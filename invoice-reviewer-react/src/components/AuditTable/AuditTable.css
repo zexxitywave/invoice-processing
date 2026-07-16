@@ -63,3 +63,25 @@
     background:#eef4ff;
 
 }
+
+/* Pagination */
+.pagination-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.25rem;
+    padding: 1.25rem 0 0.5rem;
+}
+
+.pagination-info {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-light);
+    min-width: 60px;
+    text-align: center;
+}
+
+.btn-sm {
+    padding: 0.45rem 1.1rem;
+    font-size: 0.85rem;
+}

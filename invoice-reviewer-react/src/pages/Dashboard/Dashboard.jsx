@@ -20,6 +20,11 @@ export default function Dashboard() {
     loading,
     error,
     refresh,
+    goNext,
+    goPrev,
+    hasNext,
+    hasPrev,
+    pageNumber,
   } = useDashboard();
 
   useEffect(() => {
@@ -151,6 +156,11 @@ export default function Dashboard() {
                 <InvoiceTable
                   invoices={invoices}
                   onReview={handleReview}
+                  hasNext={hasNext}
+                  hasPrev={hasPrev}
+                  pageNumber={pageNumber}
+                  onNext={goNext}
+                  onPrev={goPrev}
                 />
 
               </div>

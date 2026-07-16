@@ -1,191 +1,97 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getAuditInvoices } from "../services/auditService";
 
-import {
-  getAuditInvoices,
-} from "../services/auditService";
+const PAGE_SIZE = 20;
 
 export default function useAudit() {
+  const [invoices, setInvoices]       = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState("");
+  const [nextToken, setNextToken]     = useState(null);
+  const [prevTokens, setPrevTokens]   = useState([]); // stack of previous cursors
+  const [currentToken, setCurrentToken] = useState(null);
+  const [filters, setFilters]         = useState({ status: "", risk: "", search: "" });
 
-  const [invoices, setInvoices] = useState([]);
-
-  const [loading, setLoading] = useState(true);
-
-  const [error, setError] = useState("");
-
-  const [filters, setFilters] = useState({
-    status: "",
-    risk: "",
-    search: "",
-  });
-
-  const refresh = useCallback(async () => {
-
+  const fetchPage = useCallback(async (token) => {
     setLoading(true);
-
     setError("");
-
     try {
-
-      const data = await getAuditInvoices();
-
-      setInvoices(data);
-
+      const data = await getAuditInvoices(PAGE_SIZE, token);
+      // data = { items, nextToken, pageSize, count }
+      setInvoices(data.items ?? data); // fallback if old API format
+      setNextToken(data.nextToken ?? null);
     } catch (err) {
-
-      setError(
-        err.message ||
-        "Unable to load audit report."
-      );
-
+      setError(err.message || "Unable to load audit report.");
     } finally {
-
       setLoading(false);
-
     }
-
   }, []);
 
-  useEffect(() => {
+  // Initial load
+  useEffect(() => { fetchPage(null); }, [fetchPage]);
 
-    refresh();
+  const refresh = useCallback(() => {
+    setPrevTokens([]);
+    setCurrentToken(null);
+    fetchPage(null);
+  }, [fetchPage]);
 
-  }, [refresh]);
+  const goNext = useCallback(() => {
+    if (!nextToken) return;
+    setPrevTokens((prev) => [...prev, currentToken]);
+    setCurrentToken(nextToken);
+    fetchPage(nextToken);
+  }, [nextToken, currentToken, fetchPage]);
+
+  const goPrev = useCallback(() => {
+    if (!prevTokens.length) return;
+    const stack = [...prevTokens];
+    const token = stack.pop();
+    setPrevTokens(stack);
+    setCurrentToken(token);
+    fetchPage(token);
+  }, [prevTokens, fetchPage]);
 
   const filteredInvoices = useMemo(() => {
-
     return invoices.filter((invoice) => {
-
-      if (
-        filters.status &&
-        invoice.validationStatus !== filters.status
-      ) {
-        return false;
-      }
-
-      if (
-        filters.risk &&
-        invoice.risk !== filters.risk
-      ) {
-        return false;
-      }
-
+      if (filters.status && invoice.validationStatus !== filters.status) return false;
+      if (filters.risk   && invoice.risk !== filters.risk)               return false;
       if (filters.search) {
-
-        const keyword = filters.search.toLowerCase();
-
-        const searchable =
-          `${invoice.invoiceId ?? ""} ${invoice.vendorName ?? ""}`
-            .toLowerCase();
-
-        if (!searchable.includes(keyword)) {
-          return false;
-        }
-
+        const keyword    = filters.search.toLowerCase();
+        const searchable = `${invoice.invoiceId ?? ""} ${invoice.vendorName ?? ""}`.toLowerCase();
+        if (!searchable.includes(keyword)) return false;
       }
-
       return true;
-
     });
-
   }, [filters, invoices]);
 
   const summary = useMemo(() => {
-
     const stats = {
-
       total: filteredInvoices.length,
-
-      approved: 0,
-
-      reviewRequired: 0,
-
-      duplicate: 0,
-
-      humanApproved: 0,
-
-      humanRejected: 0,
-
-      averageConfidence: "—",
-
+      approved: 0, reviewRequired: 0, duplicate: 0,
+      humanApproved: 0, humanRejected: 0, averageConfidence: "—",
     };
-
-    let confidenceTotal = 0;
-
-    let confidenceCount = 0;
-
+    let confidenceTotal = 0, confidenceCount = 0;
     filteredInvoices.forEach((invoice) => {
-
-      switch (invoice.validationStatus) {
-
-        case "APPROVED":
-          stats.approved++;
-          break;
-
-        case "REVIEW_REQUIRED":
-          stats.reviewRequired++;
-          break;
-
-        case "DUPLICATE":
-          stats.duplicate++;
-          break;
-
-        default:
-          break;
-
-      }
-
-      if (invoice.reviewDecision === "APPROVED") {
-        stats.humanApproved++;
-      }
-
-      if (invoice.reviewDecision === "REJECTED") {
-        stats.humanRejected++;
-      }
-
-      const confidence = Number(
-        invoice.avgConfidence ??
-        invoice.totalConfidence
-      );
-
-      if (!Number.isNaN(confidence)) {
-
-        confidenceTotal += confidence;
-
-        confidenceCount++;
-
-      }
-
+      if (invoice.validationStatus === "APPROVED")        stats.approved++;
+      if (invoice.validationStatus === "REVIEW_REQUIRED") stats.reviewRequired++;
+      if (invoice.validationStatus === "DUPLICATE")       stats.duplicate++;
+      if (invoice.reviewDecision   === "APPROVED")        stats.humanApproved++;
+      if (invoice.reviewDecision   === "REJECTED")        stats.humanRejected++;
+      const c = Number(invoice.avgConfidence ?? invoice.totalConfidence);
+      if (!Number.isNaN(c)) { confidenceTotal += c; confidenceCount++; }
     });
-
-    if (confidenceCount > 0) {
-
-      stats.averageConfidence =
-        `${(confidenceTotal / confidenceCount).toFixed(1)}%`;
-
-    }
-
+    if (confidenceCount > 0)
+      stats.averageConfidence = `${(confidenceTotal / confidenceCount).toFixed(1)}%`;
     return stats;
-
   }, [filteredInvoices]);
 
   return {
-
-    invoices,
-
-    filteredInvoices,
-
-    filters,
-
-    setFilters,
-
-    summary,
-
-    loading,
-
-    error,
-
-    refresh,
-
+    invoices, filteredInvoices, filters, setFilters,
+    summary, loading, error,
+    refresh, goNext, goPrev,
+    hasNext: !!nextToken,
+    hasPrev: prevTokens.length > 0,
+    pageNumber: prevTokens.length + 1,
   };
-
 }
