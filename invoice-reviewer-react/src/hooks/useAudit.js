@@ -4,22 +4,23 @@ import { getAuditInvoices } from "../services/auditService";
 const PAGE_SIZE = 20;
 
 export default function useAudit() {
-  const [invoices, setInvoices]       = useState([]);
-  const [loading, setLoading]         = useState(true);
-  const [error, setError]             = useState("");
-  const [nextToken, setNextToken]     = useState(null);
-  const [prevTokens, setPrevTokens]   = useState([]); // stack of previous cursors
+  const [invoices, setInvoices]         = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState("");
+  const [nextToken, setNextToken]       = useState(null);
+  const [prevTokens, setPrevTokens]     = useState([]);
   const [currentToken, setCurrentToken] = useState(null);
-  const [filters, setFilters]         = useState({ status: "", risk: "", search: "" });
+  const [totalCount, setTotalCount]     = useState(0);
+  const [filters, setFilters]           = useState({ status: "", risk: "", search: "" });
 
   const fetchPage = useCallback(async (token) => {
     setLoading(true);
     setError("");
     try {
       const data = await getAuditInvoices(PAGE_SIZE, token);
-      // data = { items, nextToken, pageSize, count }
-      setInvoices(data.items ?? data); // fallback if old API format
+      setInvoices(data.items ?? data);
       setNextToken(data.nextToken ?? null);
+      if (data.totalCount > 0) setTotalCount(data.totalCount);
     } catch (err) {
       setError(err.message || "Unable to load audit report.");
     } finally {
@@ -93,5 +94,6 @@ export default function useAudit() {
     hasNext: !!nextToken,
     hasPrev: prevTokens.length > 0,
     pageNumber: prevTokens.length + 1,
+    totalPages: totalCount > 0 ? Math.ceil(totalCount / PAGE_SIZE) : null,
   };
 }

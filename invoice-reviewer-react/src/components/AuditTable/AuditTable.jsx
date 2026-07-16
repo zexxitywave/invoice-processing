@@ -7,6 +7,7 @@ export default function AuditTable({
   hasNext = false,
   hasPrev = false,
   pageNumber = 1,
+  totalPages = null,
   onNext = () => {},
   onPrev = () => {},
 }) {
@@ -55,7 +56,9 @@ export default function AuditTable({
           ← Previous
         </button>
 
-        <span className="pagination-info">Page {pageNumber}</span>
+        <span className="pagination-info">
+          Page {pageNumber}{totalPages ? ` of ${totalPages}` : ""}
+        </span>
 
         <button
           className="btn btn-secondary btn-sm"

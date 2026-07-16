@@ -159,15 +159,30 @@ public class GetInvoiceHandler
         }
 
         Map<String, Object> result = new HashMap<>();
-        result.put("items",     items);
-        result.put("nextToken", newNextToken);
-        result.put("pageSize",  pageSize);
-        result.put("count",     items.size());
+        result.put("items",      items);
+        result.put("nextToken",  newNextToken);
+        result.put("pageSize",   pageSize);
+        result.put("count",      items.size());
+        result.put("totalCount", getTotalCount(ctx));
 
         ctx.getLogger().log("GetInvoice: returned " + items.size()
                 + " items, hasMore=" + (newNextToken != null));
 
         return successResponse(result);
+    }
+
+    // ── Get total item count via DynamoDB table scan count ────────────────────
+    private int getTotalCount(Context ctx) {
+        try {
+            software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest req =
+                    software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest.builder()
+                            .tableName(DYNAMO_TABLE)
+                            .build();
+            return (int) dynamoDbClient.describeTable(req).table().itemCount().intValue();
+        } catch (Exception e) {
+            ctx.getLogger().log("WARNING: could not get totalCount: " + e.getMessage());
+            return -1;
+        }
     }
 
     // ── DynamoDB item → plain Map ──────────────────────────────────────────────

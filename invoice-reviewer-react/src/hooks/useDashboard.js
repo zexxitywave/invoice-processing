@@ -14,13 +14,14 @@ export default function useDashboard() {
     approved: 0, reviewRequired: 0, duplicate: 0, total: 0,
   });
 
-  const calculateStats = useCallback((data) => {
-    const counts = { approved: 0, reviewRequired: 0, duplicate: 0, total: data.length };
+  const calculateStats = useCallback((data, total) => {
+    const counts = { approved: 0, reviewRequired: 0, duplicate: 0, total: total ?? data.length };
     data.forEach((invoice) => {
       if (invoice.validationStatus === "APPROVED")        counts.approved++;
       if (invoice.validationStatus === "REVIEW_REQUIRED") counts.reviewRequired++;
       if (invoice.validationStatus === "DUPLICATE")       counts.duplicate++;
     });
+    counts.totalPages = Math.ceil(counts.total / PAGE_SIZE);
     return counts;
   }, []);
 
@@ -32,7 +33,9 @@ export default function useDashboard() {
       const items    = data.items ?? data;
       setInvoices(items);
       setNextToken(data.nextToken ?? null);
-      setStats(calculateStats(items));
+      // Use totalCount from backend for metric cards, fall back to page count
+      const total = data.totalCount > 0 ? data.totalCount : items.length;
+      setStats(calculateStats(items, total));
     } catch (err) {
       setError(err.message || "Unable to load dashboard.");
     } finally {

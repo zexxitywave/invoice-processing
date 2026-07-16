@@ -159,6 +159,7 @@ export default function Dashboard() {
                   hasNext={hasNext}
                   hasPrev={hasPrev}
                   pageNumber={pageNumber}
+                  totalPages={stats.totalPages}
                   onNext={goNext}
                   onPrev={goPrev}
                 />

@@ -26,6 +26,7 @@ export default function Audit() {
     hasNext,
     hasPrev,
     pageNumber,
+    totalPages,
   } = useAudit();
 
   useEffect(() => {
@@ -184,6 +185,7 @@ export default function Audit() {
               hasNext={hasNext}
               hasPrev={hasPrev}
               pageNumber={pageNumber}
+              totalPages={totalPages}
               onNext={goNext}
               onPrev={goPrev}
             />
