@@ -167,6 +167,8 @@ public class GetInvoiceHandler
         result.put("totalApproved",     getCountByStatus("APPROVED", ctx));
         result.put("totalReview",       getCountByStatus("REVIEW_REQUIRED", ctx));
         result.put("totalDuplicate",    getCountByStatus("DUPLICATE", ctx));
+        result.put("totalHumanApproved", getCountByDecision("APPROVED", ctx));
+        result.put("totalHumanRejected", getCountByDecision("REJECTED", ctx));
 
         ctx.getLogger().log("GetInvoice: returned " + items.size()
                 + " items, hasMore=" + (newNextToken != null));
@@ -194,6 +196,30 @@ public class GetInvoiceHandler
             return count;
         } catch (Exception e) {
             ctx.getLogger().log("WARNING: getCountByStatus(" + status + ") failed: " + e.getMessage());
+            return 0;
+        }
+    }
+
+    // ── Get count of items by reviewDecision ──────────────────────────────────
+    private int getCountByDecision(String decision, Context ctx) {
+        try {
+            int count = 0;
+            Map<String, AttributeValue> lastKey = null;
+            do {
+                ScanRequest.Builder b = ScanRequest.builder()
+                        .tableName(DYNAMO_TABLE)
+                        .filterExpression("reviewDecision = :d")
+                        .expressionAttributeValues(Map.of(
+                                ":d", AttributeValue.builder().s(decision).build()))
+                        .select("COUNT");
+                if (lastKey != null) b.exclusiveStartKey(lastKey);
+                ScanResponse r = dynamoDbClient.scan(b.build());
+                count  += r.count();
+                lastKey = r.lastEvaluatedKey().isEmpty() ? null : r.lastEvaluatedKey();
+            } while (lastKey != null);
+            return count;
+        } catch (Exception e) {
+            ctx.getLogger().log("WARNING: getCountByDecision(" + decision + ") failed: " + e.getMessage());
             return 0;
         }
     }

@@ -10,17 +10,40 @@ export default function useAudit() {
   const [nextToken, setNextToken]       = useState(null);
   const [prevTokens, setPrevTokens]     = useState([]);
   const [currentToken, setCurrentToken] = useState(null);
-  const [totalCount, setTotalCount]     = useState(0);
   const [filters, setFilters]           = useState({ status: "", risk: "", search: "" });
+
+  // Stable global counts from backend — never change with page
+  const [globalStats, setGlobalStats] = useState({
+    total: 0,
+    approved: 0,
+    reviewRequired: 0,
+    duplicate: 0,
+    humanApproved: 0,
+    humanRejected: 0,
+    totalPages: null,
+  });
 
   const fetchPage = useCallback(async (token) => {
     setLoading(true);
     setError("");
     try {
-      const data = await getAuditInvoices(PAGE_SIZE, token);
-      setInvoices(data.items ?? data);
+      const data  = await getAuditInvoices(PAGE_SIZE, token);
+      const items = Array.isArray(data) ? data : (data.items ?? []);
+      setInvoices(items);
       setNextToken(data.nextToken ?? null);
-      if (data.totalCount > 0) setTotalCount(data.totalCount);
+
+      // Update global stable stats only when backend provides them
+      if (data.totalCount > 0) {
+        setGlobalStats({
+          total:         data.totalCount,
+          approved:      data.totalApproved      ?? 0,
+          reviewRequired:data.totalReview        ?? 0,
+          duplicate:     data.totalDuplicate     ?? 0,
+          humanApproved: data.totalHumanApproved ?? 0,
+          humanRejected: data.totalHumanRejected ?? 0,
+          totalPages:    Math.ceil(data.totalCount / PAGE_SIZE),
+        });
+      }
     } catch (err) {
       setError(err.message || "Unable to load audit report.");
     } finally {
@@ -28,7 +51,6 @@ export default function useAudit() {
     }
   }, []);
 
-  // Initial load
   useEffect(() => { fetchPage(null); }, [fetchPage]);
 
   const refresh = useCallback(() => {
@@ -66,34 +88,34 @@ export default function useAudit() {
     });
   }, [filters, invoices]);
 
-  const summary = useMemo(() => {
-    const stats = {
-      total: filteredInvoices.length,
-      approved: 0, reviewRequired: 0, duplicate: 0,
-      humanApproved: 0, humanRejected: 0, averageConfidence: "—",
-    };
-    let confidenceTotal = 0, confidenceCount = 0;
-    filteredInvoices.forEach((invoice) => {
-      if (invoice.validationStatus === "APPROVED")        stats.approved++;
-      if (invoice.validationStatus === "REVIEW_REQUIRED") stats.reviewRequired++;
-      if (invoice.validationStatus === "DUPLICATE")       stats.duplicate++;
-      if (invoice.reviewDecision   === "APPROVED")        stats.humanApproved++;
-      if (invoice.reviewDecision   === "REJECTED")        stats.humanRejected++;
-      const c = Number(invoice.avgConfidence ?? invoice.totalConfidence);
-      if (!Number.isNaN(c)) { confidenceTotal += c; confidenceCount++; }
+  // Average confidence calculated from current page (display only)
+  const averageConfidence = useMemo(() => {
+    let total = 0, count = 0;
+    filteredInvoices.forEach((inv) => {
+      const c = Number(inv.avgConfidence ?? inv.totalConfidence);
+      if (!Number.isNaN(c)) { total += c; count++; }
     });
-    if (confidenceCount > 0)
-      stats.averageConfidence = `${(confidenceTotal / confidenceCount).toFixed(1)}%`;
-    return stats;
+    return count > 0 ? `${(total / count).toFixed(1)}%` : "—";
   }, [filteredInvoices]);
+
+  // Summary uses stable backend counts — never changes with page
+  const summary = {
+    total:            globalStats.total,
+    approved:         globalStats.approved,
+    reviewRequired:   globalStats.reviewRequired,
+    duplicate:        globalStats.duplicate,
+    humanApproved:    globalStats.humanApproved,
+    humanRejected:    globalStats.humanRejected,
+    averageConfidence,
+  };
 
   return {
     invoices, filteredInvoices, filters, setFilters,
     summary, loading, error,
     refresh, goNext, goPrev,
-    hasNext: !!nextToken,
-    hasPrev: prevTokens.length > 0,
+    hasNext:    !!nextToken,
+    hasPrev:    prevTokens.length > 0,
     pageNumber: prevTokens.length + 1,
-    totalPages: totalCount > 0 ? Math.ceil(totalCount / PAGE_SIZE) : null,
+    totalPages: globalStats.totalPages,
   };
 }

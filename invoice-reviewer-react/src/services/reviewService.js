@@ -37,21 +37,21 @@ export async function getInvoices() {
 
 /**
  * Returns only invoices waiting for review
+ * Handles paginated response { items, nextToken, ... } or plain array
  */
 export async function getReviewQueue() {
-  const invoices = await getInvoices();
+  const data = await getInvoices();
+  // Handle paginated response
+  const invoices = Array.isArray(data) ? data : (data.items ?? []);
 
   return invoices.filter(
     (invoice) =>
-      invoice.validationStatus ===
-        "REVIEW_REQUIRED" &&
+      invoice.validationStatus === "REVIEW_REQUIRED" &&
       (
         !invoice.reviewDecision ||
         invoice.reviewDecision === "" ||
-        invoice.reviewDecision ===
-          "undefined" ||
-        invoice.reviewDecision ===
-          "PENDING"
+        invoice.reviewDecision === "undefined" ||
+        invoice.reviewDecision === "PENDING"
       )
   );
 }
