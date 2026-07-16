@@ -159,16 +159,43 @@ public class GetInvoiceHandler
         }
 
         Map<String, Object> result = new HashMap<>();
-        result.put("items",      items);
-        result.put("nextToken",  newNextToken);
-        result.put("pageSize",   pageSize);
-        result.put("count",      items.size());
-        result.put("totalCount", getTotalCount(ctx));
+        result.put("items",             items);
+        result.put("nextToken",         newNextToken);
+        result.put("pageSize",          pageSize);
+        result.put("count",             items.size());
+        result.put("totalCount",        getTotalCount(ctx));
+        result.put("totalApproved",     getCountByStatus("APPROVED", ctx));
+        result.put("totalReview",       getCountByStatus("REVIEW_REQUIRED", ctx));
+        result.put("totalDuplicate",    getCountByStatus("DUPLICATE", ctx));
 
         ctx.getLogger().log("GetInvoice: returned " + items.size()
                 + " items, hasMore=" + (newNextToken != null));
 
         return successResponse(result);
+    }
+
+    // ── Get count of items by validationStatus ────────────────────────────────
+    private int getCountByStatus(String status, Context ctx) {
+        try {
+            int count = 0;
+            Map<String, AttributeValue> lastKey = null;
+            do {
+                ScanRequest.Builder b = ScanRequest.builder()
+                        .tableName(DYNAMO_TABLE)
+                        .filterExpression("validationStatus = :s")
+                        .expressionAttributeValues(Map.of(
+                                ":s", AttributeValue.builder().s(status).build()))
+                        .select("COUNT");
+                if (lastKey != null) b.exclusiveStartKey(lastKey);
+                ScanResponse r = dynamoDbClient.scan(b.build());
+                count  += r.count();
+                lastKey = r.lastEvaluatedKey().isEmpty() ? null : r.lastEvaluatedKey();
+            } while (lastKey != null);
+            return count;
+        } catch (Exception e) {
+            ctx.getLogger().log("WARNING: getCountByStatus(" + status + ") failed: " + e.getMessage());
+            return 0;
+        }
     }
 
     // ── Get total item count via DynamoDB table scan count ────────────────────

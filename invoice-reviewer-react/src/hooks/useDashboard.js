@@ -14,7 +14,18 @@ export default function useDashboard() {
     approved: 0, reviewRequired: 0, duplicate: 0, total: 0,
   });
 
-  const calculateStats = useCallback((data, total) => {
+  const calculateStats = useCallback((data, total, approved, review, duplicate) => {
+    // Use backend-provided counts if available — these are stable across pages
+    if (approved !== null && review !== null && duplicate !== null) {
+      return {
+        approved,
+        reviewRequired: review,
+        duplicate,
+        total: total ?? data.length,
+        totalPages: Math.ceil((total ?? data.length) / PAGE_SIZE),
+      };
+    }
+    // Fallback: count from current page items
     const counts = { approved: 0, reviewRequired: 0, duplicate: 0, total: total ?? data.length };
     data.forEach((invoice) => {
       if (invoice.validationStatus === "APPROVED")        counts.approved++;
@@ -33,9 +44,12 @@ export default function useDashboard() {
       const items    = data.items ?? data;
       setInvoices(items);
       setNextToken(data.nextToken ?? null);
-      // Use totalCount from backend for metric cards, fall back to page count
-      const total = data.totalCount > 0 ? data.totalCount : items.length;
-      setStats(calculateStats(items, total));
+      // Use backend-provided totals so metric cards never change with page
+      const total     = data.totalCount    > 0 ? data.totalCount    : items.length;
+      const approved  = data.totalApproved ?? null;
+      const review    = data.totalReview   ?? null;
+      const duplicate = data.totalDuplicate?? null;
+      setStats(calculateStats(items, total, approved, review, duplicate));
     } catch (err) {
       setError(err.message || "Unable to load dashboard.");
     } finally {
