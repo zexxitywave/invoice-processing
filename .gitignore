@@ -1,3 +1,18 @@
-Nothing should be ignored in this case, as only a markdown file (`interview_questions.md`) was added, which is a source/config file and not a build artifact, dependency, or temporary file.
+# Maven build output
+target/
 
-Output: (empty)
+# IDE files
+.idea/
+*.iml
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Auto-generated Maven files
+dependency-reduced-pom.xml
+
+# Secrets — never commit these
+*.env
+secret-update.json
