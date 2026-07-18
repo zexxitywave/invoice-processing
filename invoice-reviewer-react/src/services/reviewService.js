@@ -37,14 +37,24 @@ export async function getInvoices() {
 
 /**
  * Returns only invoices waiting for review
- * Handles paginated response { items, nextToken, ... } or plain array
+ * Fetches ALL pages to ensure no REVIEW_REQUIRED invoices are missed
  */
 export async function getReviewQueue() {
-  const data = await getInvoices();
-  // Handle paginated response
-  const invoices = Array.isArray(data) ? data : (data.items ?? []);
+  let allInvoices = [];
+  let nextToken = null;
 
-  return invoices.filter(
+  // Paginate through all pages
+  do {
+    const url = nextToken
+      ? `/invoices?pageSize=100&nextToken=${encodeURIComponent(nextToken)}`
+      : `/invoices?pageSize=100`;
+    const data = await request(url);
+    const items = Array.isArray(data) ? data : (data.items ?? []);
+    allInvoices = allInvoices.concat(items);
+    nextToken = data.nextToken ?? null;
+  } while (nextToken);
+
+  return allInvoices.filter(
     (invoice) =>
       invoice.validationStatus === "REVIEW_REQUIRED" &&
       (

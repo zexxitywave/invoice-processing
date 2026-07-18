@@ -2,6 +2,25 @@ import StatusBadge from "../StatusBadge";
 import ConfidenceBar from "../ConfidenceBar";
 import "./InvoiceTable.css";
 
+function formatDate(raw) {
+  if (!raw) return "—";
+  // Try parsing the date — handles ISO, "Apr 07 2012", "Mar 24 4 2012" etc.
+  const cleaned = raw.replace(/\s+/g, " ").trim();
+  const date = new Date(cleaned);
+  if (isNaN(date.getTime())) {
+    // Fallback: extract 3-letter month, digits for day, 4-digit year
+    const match = cleaned.match(/([A-Za-z]+)\s+(\d+)\s+(?:\d+\s+)?(\d{4})/);
+    if (match) {
+      const d = new Date(`${match[1]} ${match[2]} ${match[3]}`);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "2-digit" });
+      }
+    }
+    return cleaned;
+  }
+  return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "2-digit" });
+}
+
 export default function InvoiceTable({
   invoices = [],
   onReview = () => {},
@@ -43,7 +62,7 @@ export default function InvoiceTable({
                 <tr key={invoice.invoiceId}>
                   <td><code>{invoice.invoiceId || "—"}</code></td>
                   <td>{invoice.vendorName || "—"}</td>
-                  <td>{invoice.invoiceDate || "—"}</td>
+                  <td>{formatDate(invoice.invoiceDate)}</td>
                   <td><strong>{invoice.total || "—"}</strong></td>
                   <td><StatusBadge type="risk" value={invoice.risk} /></td>
                   <td><StatusBadge type="ai" value={invoice.validationStatus} /></td>
