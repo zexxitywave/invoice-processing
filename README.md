@@ -95,7 +95,7 @@ Reviewer clicks one-click link in email → TokenApprovalHandler
 
 ## API Endpoints
 
-Base URL: `https://rw5n87lye8.execute-api.ap-south-1.amazonaws.com`
+Base URL: `https://xei4kla8v8.execute-api.ap-south-1.amazonaws.com`
 
 | Method | Path | Lambda | Description |
 |---|---|---|---|
