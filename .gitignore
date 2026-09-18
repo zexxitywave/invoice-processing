@@ -16,3 +16,13 @@ dependency-reduced-pom.xml
 # Secrets — never commit these
 *.env
 secret-update.json
+
+# Transient logs / local outputs — never commit these
+jmeter.log
+out-*.json
+response.json
+test-payload.json
+
+# Deployment artifacts (regenerated per deploy)
+migration/packaged.json
+migration/params.json
