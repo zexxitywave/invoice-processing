@@ -498,7 +498,7 @@ Return ONLY valid JSON – no markdown fences, no extra text.
 
             String apiBase   = System.getenv("API_BASE_URL") != null
                     ? System.getenv("API_BASE_URL")
-                    : "https://rw5n87lye8.execute-api.ap-south-1.amazonaws.com";
+                    : "https://xi78f9b5fe.execute-api.ap-south-1.amazonaws.com";
 
             String approveLink = apiBase + "/invoices/approve?token=" + approveToken;
             String rejectLink  = apiBase + "/invoices/reject?token="  + rejectToken;

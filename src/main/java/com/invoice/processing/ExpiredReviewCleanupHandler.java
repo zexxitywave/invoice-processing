@@ -45,7 +45,7 @@ public class ExpiredReviewCleanupHandler
     private static final long   EXPIRY_SECONDS    = 72 * 60 * 60L;   // 72 hours
     private static final String API_BASE_URL      = System.getenv("API_BASE_URL") != null
             ? System.getenv("API_BASE_URL")
-            : "https://rw5n87lye8.execute-api.ap-south-1.amazonaws.com";
+            : "https://xi78f9b5fe.execute-api.ap-south-1.amazonaws.com";
 
     private final DynamoDbClient dynamo = DynamoDbClient.builder()
             .region(Region.AP_SOUTH_1).build();
