@@ -33,11 +33,11 @@ import java.util.UUID;
  *
  * Flow:
  *   1. SES receives email at invoices@zexxity.online
- *   2. SES stores raw email → s3://ses-inbound-emails-eu/ (eu-west-1)
+ *   2. SES stores raw email → s3://ses-inbound-emails-m3/emails/ (ap-south-1)
  *   3. SES triggers this Lambda
  *   4. Lambda reads raw email from S3
  *   5. Lambda extracts PDF attachments
- *   6. Lambda saves each PDF → s3://invoice-processing-buckets/invoices/ (ap-south-1)
+ *   6. Lambda saves each PDF → s3://invoice-processing-buckets-m3/invoices/ (ap-south-1)
  *   7. EventBridge detects new file → Step Functions → full pipeline
  *
  * Environment variables (set in Lambda console):
@@ -57,13 +57,8 @@ public class SesInboundHandler
             ? System.getenv("INVOICE_BUCKET")
             : "invoice-processing-buckets";
 
-    // ── S3 clients – two regions ───────────────────────────────────────────────
-    // Raw emails are stored in eu-west-1 (where SES inbound works)
-    private final S3Client s3EuWest = S3Client.builder()
-            .region(Region.EU_WEST_1)
-            .build();
-
-    // Invoice PDFs go to ap-south-1 (where your pipeline runs)
+    // ── S3 client – single region (ap-south-1) ─────────────────────────────────
+    // Raw emails AND invoice PDFs now live in ap-south-1 (single-region design)
     private final S3Client s3ApSouth = S3Client.builder()
             .region(Region.AP_SOUTH_1)
             .build();
@@ -157,7 +152,7 @@ public class SesInboundHandler
                     + SES_INBOUND_BUCKET + "/" + key);
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
-            s3EuWest.getObject(
+            s3ApSouth.getObject(
                     GetObjectRequest.builder()
                             .bucket(SES_INBOUND_BUCKET)
                             .key(key)
