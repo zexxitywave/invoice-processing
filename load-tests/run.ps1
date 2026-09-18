@@ -12,7 +12,7 @@
 #   .\load-tests\run.ps1 -Profile soak
 #   .\load-tests\run.ps1 -JMeterHome "C:\apache-jmeter-5.6.3"
 #   .\load-tests\run.ps1 -DryRun
-#   .\load-tests\run.ps1 -BaseUrl "rw5n87lye8.execute-api.ap-south-1.amazonaws.com"
+#   .\load-tests\run.ps1 -BaseUrl "xei4kla8v8.execute-api.ap-south-1.amazonaws.com"
 #   .\load-tests\run.ps1 -InvoiceIds "INV-001,INV-002,INV-003"
 #   .\load-tests\run.ps1 -OpenReport
 # =============================================================================
@@ -23,7 +23,7 @@ param (
 
     [string]$JMeterHome  = '',   # e.g. C:\apache-jmeter-5.6.3
 
-    [string]$BaseUrl     = 'rw5n87lye8.execute-api.ap-south-1.amazonaws.com',
+    [string]$BaseUrl     = 'xei4kla8v8.execute-api.ap-south-1.amazonaws.com',
 
     [string]$ReviewerEmail = 'loadtest@zexxity.online',
 
