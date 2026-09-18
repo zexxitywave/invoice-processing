@@ -10,7 +10,7 @@
         <collectionProp name="Arguments.arguments">
           <elementProp name="BASE_URL" elementType="Argument">
             <stringProp name="Argument.name">BASE_URL</stringProp>
-            <stringProp name="Argument.value">${__P(base_url,rw5n87lye8.execute-api.ap-south-1.amazonaws.com)}</stringProp>
+            <stringProp name="Argument.value">${__P(base_url,xei4kla8v8.execute-api.ap-south-1.amazonaws.com)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="PROTOCOL" elementType="Argument">
