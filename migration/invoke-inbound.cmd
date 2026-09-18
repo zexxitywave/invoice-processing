@@ -1,0 +1,2 @@
+@echo off
+aws lambda invoke --function-name ses-inbound-handler --payload fileb://C:\Users\jagdish\AppData\Local\Temp\opencode\ses-payload.json --profile new3 --region ap-south-1 C:\Users\jagdish\AppData\Local\Temp\opencode\out-inbound.json
