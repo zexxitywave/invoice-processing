@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
@@ -14,6 +15,8 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
+import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
 
@@ -127,25 +130,40 @@ public class GetInvoiceHandler
 
     private Map<String, Object> listPaged(int pageSize, String nextToken, Context ctx) throws Exception {
 
-        ScanRequest.Builder builder = ScanRequest.builder()
-                .tableName(DYNAMO_TABLE)
-                .limit(pageSize);
-
-        // Decode the nextToken (Base64 encoded JSON of the DynamoDB LastEvaluatedKey)
+        // Build the exclusive start key if nextToken provided
+        final Map<String, AttributeValue> startKey = new HashMap<>();
         if (nextToken != null && !nextToken.isBlank()) {
             try {
                 String decoded = new String(java.util.Base64.getUrlDecoder().decode(nextToken));
                 Map<String, Object> keyMap = objectMapper.readValue(decoded, Map.class);
-                Map<String, AttributeValue> startKey = new HashMap<>();
                 keyMap.forEach((k, v) -> startKey.put(k, AttributeValue.builder().s(v.toString()).build()));
-                builder.exclusiveStartKey(startKey);
             } catch (Exception e) {
                 ctx.getLogger().log("WARNING: invalid nextToken, ignoring: " + e.getMessage());
             }
         }
 
-        ScanResponse resp = dynamoDbClient.scan(builder.build());
+        // ── Run main scan + all 6 count queries in parallel ───────────────────
+        final int finalPageSize = pageSize;
+        CompletableFuture<ScanResponse> scanF = CompletableFuture.supplyAsync(() -> {
+            ScanRequest.Builder b = ScanRequest.builder()
+                    .tableName(DYNAMO_TABLE)
+                    .limit(finalPageSize);
+            if (!startKey.isEmpty()) b.exclusiveStartKey(startKey);
+            return dynamoDbClient.scan(b.build());
+        });
 
+        CompletableFuture<Integer> totalCountF         = CompletableFuture.supplyAsync(() -> getTotalCount(ctx));
+        CompletableFuture<Integer> totalApprovedF      = CompletableFuture.supplyAsync(() -> getCountByStatus("APPROVED", ctx));
+        CompletableFuture<Integer> totalReviewF        = CompletableFuture.supplyAsync(() -> getCountByStatus("REVIEW_REQUIRED", ctx));
+        CompletableFuture<Integer> totalDuplicateF     = CompletableFuture.supplyAsync(() -> getCountByStatus("DUPLICATE", ctx));
+        CompletableFuture<Integer> totalHumanApprovedF = CompletableFuture.supplyAsync(() -> getCountByDecision("APPROVED", ctx));
+        CompletableFuture<Integer> totalHumanRejectedF = CompletableFuture.supplyAsync(() -> getCountByDecision("REJECTED", ctx));
+
+        // Wait for all 7 to complete simultaneously
+        CompletableFuture.allOf(scanF, totalCountF, totalApprovedF, totalReviewF,
+                totalDuplicateF, totalHumanApprovedF, totalHumanRejectedF).join();
+
+        ScanResponse resp = scanF.join();
         List<Map<String, Object>> items = new ArrayList<>();
         resp.items().forEach(item -> items.add(itemToMap(item)));
 
@@ -159,16 +177,16 @@ public class GetInvoiceHandler
         }
 
         Map<String, Object> result = new HashMap<>();
-        result.put("items",             items);
-        result.put("nextToken",         newNextToken);
-        result.put("pageSize",          pageSize);
-        result.put("count",             items.size());
-        result.put("totalCount",        getTotalCount(ctx));
-        result.put("totalApproved",     getCountByStatus("APPROVED", ctx));
-        result.put("totalReview",       getCountByStatus("REVIEW_REQUIRED", ctx));
-        result.put("totalDuplicate",    getCountByStatus("DUPLICATE", ctx));
-        result.put("totalHumanApproved", getCountByDecision("APPROVED", ctx));
-        result.put("totalHumanRejected", getCountByDecision("REJECTED", ctx));
+        result.put("items",              items);
+        result.put("nextToken",          newNextToken);
+        result.put("pageSize",           pageSize);
+        result.put("count",              items.size());
+        result.put("totalCount",         totalCountF.join());
+        result.put("totalApproved",      totalApprovedF.join());
+        result.put("totalReview",        totalReviewF.join());
+        result.put("totalDuplicate",     totalDuplicateF.join());
+        result.put("totalHumanApproved", totalHumanApprovedF.join());
+        result.put("totalHumanRejected", totalHumanRejectedF.join());
 
         ctx.getLogger().log("GetInvoice: returned " + items.size()
                 + " items, hasMore=" + (newNextToken != null));
@@ -176,20 +194,22 @@ public class GetInvoiceHandler
         return successResponse(result);
     }
 
-    // ── Get count of items by validationStatus ────────────────────────────────
+    // ── Get count of items by validationStatus using GSI (Query, not Scan) ──────
+    // GSI name: validationStatus-index  (partition key: validationStatus)
     private int getCountByStatus(String status, Context ctx) {
         try {
             int count = 0;
             Map<String, AttributeValue> lastKey = null;
             do {
-                ScanRequest.Builder b = ScanRequest.builder()
+                QueryRequest.Builder b = QueryRequest.builder()
                         .tableName(DYNAMO_TABLE)
-                        .filterExpression("validationStatus = :s")
+                        .indexName("validationStatus-index")
+                        .keyConditionExpression("validationStatus = :s")
                         .expressionAttributeValues(Map.of(
                                 ":s", AttributeValue.builder().s(status).build()))
                         .select("COUNT");
                 if (lastKey != null) b.exclusiveStartKey(lastKey);
-                ScanResponse r = dynamoDbClient.scan(b.build());
+                QueryResponse r = dynamoDbClient.query(b.build());
                 count  += r.count();
                 lastKey = r.lastEvaluatedKey().isEmpty() ? null : r.lastEvaluatedKey();
             } while (lastKey != null);
@@ -200,20 +220,22 @@ public class GetInvoiceHandler
         }
     }
 
-    // ── Get count of items by reviewDecision ──────────────────────────────────
+    // ── Get count of items by reviewDecision using GSI (Query, not Scan) ────────
+    // GSI name: reviewDecision-index  (partition key: reviewDecision)
     private int getCountByDecision(String decision, Context ctx) {
         try {
             int count = 0;
             Map<String, AttributeValue> lastKey = null;
             do {
-                ScanRequest.Builder b = ScanRequest.builder()
+                QueryRequest.Builder b = QueryRequest.builder()
                         .tableName(DYNAMO_TABLE)
-                        .filterExpression("reviewDecision = :d")
+                        .indexName("reviewDecision-index")
+                        .keyConditionExpression("reviewDecision = :d")
                         .expressionAttributeValues(Map.of(
                                 ":d", AttributeValue.builder().s(decision).build()))
                         .select("COUNT");
                 if (lastKey != null) b.exclusiveStartKey(lastKey);
-                ScanResponse r = dynamoDbClient.scan(b.build());
+                QueryResponse r = dynamoDbClient.query(b.build());
                 count  += r.count();
                 lastKey = r.lastEvaluatedKey().isEmpty() ? null : r.lastEvaluatedKey();
             } while (lastKey != null);
@@ -227,11 +249,18 @@ public class GetInvoiceHandler
     // ── Get total item count via DynamoDB table scan count ────────────────────
     private int getTotalCount(Context ctx) {
         try {
-            software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest req =
-                    software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest.builder()
-                            .tableName(DYNAMO_TABLE)
-                            .build();
-            return (int) dynamoDbClient.describeTable(req).table().itemCount().intValue();
+            int count = 0;
+            Map<String, AttributeValue> lastKey = null;
+            do {
+                ScanRequest.Builder b = ScanRequest.builder()
+                        .tableName(DYNAMO_TABLE)
+                        .select("COUNT");
+                if (lastKey != null) b.exclusiveStartKey(lastKey);
+                ScanResponse r = dynamoDbClient.scan(b.build());
+                count  += r.count();
+                lastKey = r.lastEvaluatedKey().isEmpty() ? null : r.lastEvaluatedKey();
+            } while (lastKey != null);
+            return count;
         } catch (Exception e) {
             ctx.getLogger().log("WARNING: could not get totalCount: " + e.getMessage());
             return -1;
