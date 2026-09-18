@@ -1,0 +1,2 @@
+@echo off
+aws cloudformation create-change-set --stack-name invoice-processing-stack --change-set-name import-min --change-set-type IMPORT --template-body file://import-minimal.yaml --resources-to-import "[{""ResourceType"":""AWS::DynamoDB::Table"",""LogicalResourceId"":""InvoicesTable"",""ResourceIdentifier"":{""TableName"":""invoices""}},{""ResourceType"":""AWS::SES::ReceiptRuleSet"",""LogicalResourceId"":""ReceiptRuleSet"",""ResourceIdentifier"":{""RuleSetName"":""invoice-inbound""}}]" --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --region ap-south-1 --profile new3

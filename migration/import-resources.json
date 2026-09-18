@@ -1,0 +1,16 @@
+[
+  {
+    "ResourceType": "AWS::DynamoDB::Table",
+    "LogicalResourceId": "InvoicesTable",
+    "ResourceIdentifier": {
+      "TableName": "invoices"
+    }
+  },
+  {
+    "ResourceType": "AWS::SES::ReceiptRuleSet",
+    "LogicalResourceId": "ReceiptRuleSet",
+    "ResourceIdentifier": {
+      "RuleSetName": "invoice-inbound"
+    }
+  }
+]

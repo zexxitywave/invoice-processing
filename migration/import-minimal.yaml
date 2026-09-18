@@ -1,0 +1,37 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Import existing InvoicesTable and SES ReceiptRuleSet
+Resources:
+  InvoicesTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    Properties:
+      TableName: invoices
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: invoiceId
+          AttributeType: S
+        - AttributeName: validationStatus
+          AttributeType: S
+        - AttributeName: reviewDecision
+          AttributeType: S
+      KeySchema:
+        - AttributeName: invoiceId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: validationStatus-index
+          KeySchema:
+            - AttributeName: validationStatus
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: reviewDecision-index
+          KeySchema:
+            - AttributeName: reviewDecision
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+  ReceiptRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    DeletionPolicy: Retain
+    Properties:
+      RuleSetName: invoice-inbound
