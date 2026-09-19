@@ -1,19 +1,46 @@
 # Invoice Processing System
-## Event-Driven Serverless Invoice Automation with AI-Powered Extraction
 
-**Version:** 2.0  
-**Live URL:** https://zexxity.online  
-**Primary Region:** ap-south-1 (Mumbai)  
-**SES Inbound Region:** eu-west-1 (Ireland) — AWS limitation, inbound email receiving not available in Mumbai  
-**Runtime:** Java 21 · AWS Lambda  
+> Event-driven, serverless invoice automation with AI-powered extraction and human-in-the-loop review.
+
+**Version:** 2.0
+**Live URL:** https://zexxity.online
+**Default Region:** `ap-south-1` (Mumbai) — single-region deployment
+**Runtime:** Java 21 · AWS Lambda
+**Frontend:** React 19 + Vite · AWS Amplify
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [AWS Services](#aws-services)
+- [Lambda Functions](#lambda-functions)
+- [API Endpoints](#api-endpoints)
+- [Extraction & Routing Logic](#extraction--routing-logic)
+- [DynamoDB Schema](#dynamodb-schema)
+- [Email Approval Flow](#email-approval-flow)
+- [Inbound Email (SES)](#inbound-email-ses)
+- [Scheduled Jobs](#scheduled-jobs)
+- [Frontend](#frontend)
+- [Project Structure](#project-structure)
+- [Local Build & Deploy](#local-build--deploy)
+- [CI/CD](#cicd)
+- [Load Testing](#load-testing)
 
 ---
 
 ## Overview
 
-A fully serverless, event-driven pipeline that automatically receives invoices by email or manual upload, extracts structured data using AWS Textract, validates and risk-scores them using Amazon Bedrock (Nova-Lite), routes flagged invoices for human approval, and persists all results for audit. Zero manual processing for auto-approved invoices.
+The system automates invoice intake end-to-end. Vendors email PDF invoices to
+`invoices@zexxity.online` (or staff upload them through the web UI). Each invoice
+is extracted with **AWS Textract**, validated and risk-scored by **Amazon Bedrock
+(Nova-Lite)**, and persisted to **DynamoDB**. Invoices that extract cleanly are
+auto-approved; anything uncertain, incomplete, or duplicated is routed to a human
+reviewer through a dashboard or a one-click email approval link. Every decision is
+recorded for full auditability.
 
-The frontend is a React + Vite SPA hosted on AWS Amplify, connected to an API Gateway HTTP API backed by Java Lambda functions.
+Zero manual processing for auto-approved invoices.
 
 ---
 
@@ -25,114 +52,128 @@ INGESTION
 Vendor email → invoices@zexxity.online
       │
       ▼
-Amazon SES (eu-west-1) → S3 (ses-inbound-emails-eu)
+Amazon SES Receipt Rule (ap-south-1) → S3 ses-inbound-emails-m3/emails/
       │
       ▼
-SesInboundHandler Lambda (eu-west-1) → copies PDF to S3 (ap-south-1)
+SesInboundHandler → copies PDF to invoice bucket (ap-south-1)
 
-Browser Upload → UploadUrlLambda → presigned S3 PUT URL → S3 (ap-south-1)
-                 invoice-processing-buckets / invoices/
+Browser Upload → UploadUrlHandler → presigned S3 PUT URL → S3 invoice-processing-buckets-m3/invoices/
 
 PROCESSING
 ──────────
-S3 Object Created → EventBridge → InvoiceExtractionHandler Lambda
+S3 Object Created → EventBridge → InvoiceExtractionHandler
       │
-      ├── AWS Textract (AnalyzeExpense) → extract fields + confidence scores
-      ├── Amazon Bedrock Nova-Lite      → validate + risk score (LOW/MED/HIGH)
-      ├── DynamoDB PutItem              → persist invoice record
-      └── SES (sesv2, ap-south-1)      → notify reviewer if REVIEW_REQUIRED
+      ├─ AWS Textract (AnalyzeExpense) → fields + confidence scores
+      ├─ Amazon Bedrock Nova-Lite       → validation + risk score (LOW/MED/HIGH)
+      ├─ DynamoDB PutItem               → persist invoice record
+      └─ Amazon SES (sesv2)             → email reviewer when REVIEW_REQUIRED
 
 REVIEW
 ──────
-Reviewer visits https://zexxity.online
-      │
-      ├── Dashboard  — metrics, totals, AI approved/rejected counts
-      ├── Upload     — manual PDF upload
-      ├── Review     — pending approval queue, approve/reject with note
-      └── Audit      — full history, CSV export
+Reviewer → https://zexxity.online
+      ├─ Dashboard — live metrics (totals, approved, review queue, duplicates)
+      ├─ Upload    — drag-and-drop PDF upload
+      ├─ Review    — pending-approval queue with approve / reject + note
+      └─ Audit     — full history with filters and CSV export
 
-      OR
-
-Reviewer clicks one-click link in email → TokenApprovalHandler
-      └── validates 72h token → writes decision to DynamoDB → HTML confirmation
+      OR one-click approval from email
+      └── TokenApprovalHandler → validates 72h token → writes decision → HTML confirmation
 ```
 
 ---
 
-## AWS Services Used
+## AWS Services
 
 | Service | Purpose |
 |---|---|
-| AWS Lambda (Java 21) | All business logic |
-| Amazon S3 | Invoice PDFs, audit JSON, deployment JARs |
-| Amazon DynamoDB | Invoice records, review decisions |
-| AWS Textract | PDF data extraction (AnalyzeExpense) |
-| Amazon Bedrock (Nova-Lite) | AI validation + risk scoring |
-| Amazon SES v2 | Outbound notification + approval emails |
-| Amazon SES (receipt rules) | Inbound email ingestion (eu-west-1) |
-| API Gateway HTTP API | REST endpoints for frontend |
-| AWS Amplify | React frontend hosting + CI/CD from GitHub |
-| AWS Secrets Manager | Config (sender, reviewer email, model ID, frontend URL) |
+| AWS Lambda (Java 21) | All business logic (11 handlers) |
+| Amazon API Gateway (HTTP API) | REST endpoints for the frontend |
+| Amazon S3 | Invoice PDFs, inbound emails, audit JSON, deployment JARs |
+| Amazon DynamoDB | Invoice records + review decisions (on-demand billing) |
+| AWS Textract | PDF extraction (AnalyzeExpense) with per-field confidence |
+| Amazon Bedrock (Nova-Lite) | AI validation, risk scoring, explanations |
+| Amazon SES v2 | Confirmation + reviewer notification emails |
+| Amazon SES Receipt Rules | Inbound email ingestion (`ap-south-1`) |
+| AWS Secrets Manager | Config: sender, reviewer, model ID, frontend URL |
 | AWS EventBridge | S3 event routing + scheduled jobs |
+| AWS Amplify | Frontend hosting + CI/CD from GitHub |
+| Amazon CloudWatch | Logs and metrics for all functions |
 
 ---
 
 ## Lambda Functions
 
-| Function Name | Handler Class | Trigger | Region | Timeout |
-|---|---|---|---|---|
-| `invoice-extraction-lambda` | `InvoiceExtractionHandler` | EventBridge (S3 event) | ap-south-1 | 60s |
-| `ses-inbound-handler` | `SesInboundHandler` | SES Receipt Rule | eu-west-1 | 60s |
-| `GetInvoiceLambda` | `GetInvoiceHandler` | API Gateway GET | ap-south-1 | 30s |
-| `ApproveRejectLambda` | `ApproveRejectHandler` | API Gateway POST | ap-south-1 | 30s |
-| `UploadUrlLambda` | `UploadUrlHandler` | API Gateway POST | ap-south-1 | 15s |
-| `token-approval` | `TokenApprovalHandler` | API Gateway GET | ap-south-1 | 30s |
-| `daily-digest-report` | `DailyDigestHandler` | EventBridge cron 08:00 IST | ap-south-1 | 120s |
-| `expired-review-cleanup` | `ExpiredReviewCleanupHandler` | EventBridge daily | ap-south-1 | 120s |
-| `weekly-s3-cleanup` | `S3CleanupHandler` | EventBridge Sunday 02:00 UTC | ap-south-1 | 120s |
+| Function | Handler | Trigger | Timeout |
+|---|---|---|---|
+| `invoice-extraction-lambda` | `InvoiceExtractionHandler` | EventBridge (S3 event) | 60 s |
+| `ses-inbound-handler` | `SesInboundHandler` | SES receipt rule | 60 s |
+| `GetInvoiceLambda` | `GetInvoiceHandler` | API Gateway `GET` | 30 s |
+| `ApproveRejectLambda` | `ApproveRejectHandler` | API Gateway `POST` | 30 s |
+| `UploadUrlLambda` | `UploadUrlHandler` | API Gateway `POST` | 15 s |
+| `token-approval` | `TokenApprovalHandler` | API Gateway `GET` | 30 s |
+| `daily-digest-report` | `DailyDigestHandler` | EventBridge cron 08:00 IST | 120 s |
+| `expired-review-cleanup` | `ExpiredReviewCleanupHandler` | EventBridge daily | 120 s |
+| `weekly-s3-cleanup` | `S3CleanupHandler` | EventBridge Sunday 02:00 UTC | 120 s |
+
+All run in `ap-south-1`.
 
 ---
 
 ## API Endpoints
 
-Base URL: `https://xei4kla8v8.execute-api.ap-south-1.amazonaws.com`
+**Base URL:** `https://xei4kla8v8.execute-api.ap-south-1.amazonaws.com`
 
 | Method | Path | Lambda | Description |
 |---|---|---|---|
-| `GET` | `/invoices` | GetInvoiceLambda | List all invoices |
-| `GET` | `/invoices?id=<id>` | GetInvoiceLambda | Get single invoice by ID |
-| `POST` | `/invoices/upload-url` | UploadUrlLambda | Generate presigned S3 PUT URL (5 min) |
+| `GET` | `/invoices` | GetInvoiceLambda | List invoices + dashboard metrics |
+| `GET` | `/invoices?id=<id>` | GetInvoiceLambda | Single invoice by ID |
+| `POST` | `/invoices/upload-url` | UploadUrlLambda | Presigned S3 PUT URL (5 min) |
 | `POST` | `/invoices/review` | ApproveRejectLambda | Submit APPROVED / REJECTED decision |
-| `GET` | `/invoices/approve?token=` | token-approval | One-click approve from email link |
-| `GET` | `/invoices/reject?token=` | token-approval | One-click reject from email link |
+| `GET` | `/invoices/approve?token=` | token-approval | One-click approve (from email) |
+| `GET` | `/invoices/reject?token=` | token-approval | One-click reject (from email) |
+
+Dashboard metrics are computed in parallel against the `validationStatus-index`
+and `reviewDecision-index` GSIs.
 
 ---
 
-## Confidence Scoring & Routing Logic
+## Extraction & Routing Logic
 
 ```
 totalConfidence = Textract confidence on the TOTAL field (0–100%)
 
 if totalConfidence < 95%:
     validationStatus = REVIEW_REQUIRED
-    SES email sent with one-click approve/reject links (72h token expiry)
+    SES email sent with one-click approve/reject links (72h token)
 
 else:
     Bedrock Nova-Lite validation runs
-    if critical missing field (invoiceId / total / vendorName):
+    if a critical field is missing (invoiceId / total / vendorName):
         validationStatus = REVIEW_REQUIRED
     else:
         validationStatus = APPROVED
 
 Duplicate detection:
-    if invoiceId already exists in DynamoDB → DUPLICATE (risk = HIGH)
+    if invoiceId already exists → DUPLICATE (risk = HIGH)
 ```
+
+Each extracted field carries a confidence score; average confidence is recorded
+alongside the risk level and the Bedrock explanation for transparency.
 
 ---
 
 ## DynamoDB Schema
 
-Table: `invoices` · Partition key: `invoiceId` (String) · Billing: PAY_PER_REQUEST
+**Table:** `invoices` · **Partition key:** `invoiceId` (String) · **Billing:** `PAY_PER_REQUEST`
+
+**Global Secondary Indexes:**
+
+| Index | Key |
+|---|---|
+| `validationStatus-index` | `validationStatus` (HASH) |
+| `reviewDecision-index` | `reviewDecision` (HASH) |
+
+**Attributes:**
 
 | Attribute | Type | Description |
 |---|---|---|
@@ -141,12 +182,12 @@ Table: `invoices` · Partition key: `invoiceId` (String) · Billing: PAY_PER_REQ
 | `invoiceDate` | S | Extracted by Textract |
 | `total` | S | Extracted by Textract |
 | `subtotal` | S | Extracted by Textract (may be null) |
-| `totalConfidence` | N | Textract confidence on TOTAL field — drives routing |
-| `avgConfidence` | N | Average of all field confidence scores |
+| `totalConfidence` | N | Confidence on TOTAL field — drives routing |
+| `avgConfidence` | N | Mean of all field confidence scores |
 | `risk` | S | Bedrock — `LOW` / `MEDIUM` / `HIGH` |
 | `validationStatus` | S | `APPROVED` / `REVIEW_REQUIRED` / `DUPLICATE` |
 | `comments` | S | Bedrock explanation |
-| `missingFields` | S | Comma-separated missing fields from Bedrock |
+| `missingFields` | S | Comma-separated missing fields (Bedrock) |
 | `reviewDecision` | S | Human decision — `APPROVED` / `REJECTED` / `ESCALATED` |
 | `reviewedBy` | S | Reviewer email or `email-link` |
 | `reviewedAt` | S | ISO 8601 timestamp |
@@ -158,24 +199,42 @@ Table: `invoices` · Partition key: `invoiceId` (String) · Billing: PAY_PER_REQ
 
 ```
 Invoice flagged REVIEW_REQUIRED
-        ↓
-InvoiceExtractionHandler sends SES email containing:
-  - Invoice ID, vendor, amount, confidence scores
-  - One-click APPROVE link  (72h Base64URL token)
-  - One-click REJECT link   (72h Base64URL token)
-  - Link to reviewer dashboard: https://zexxity.online/review
-        ↓
+        │
+        ▼
+InvoiceExtractionHandler sends SES email with:
+  • invoice ID, vendor, amount, confidence scores
+  • one-click APPROVE / REJECT links (72h Base64URL token)
+  • link to the review dashboard: https://zexxity.online/review
+        │
+        ▼
 Reviewer clicks link → TokenApprovalHandler
-  - Validates token expiry (72h)
-  - Checks not already decided
-  - Writes reviewDecision to DynamoDB
-  - Returns HTML confirmation page with link back to dashboard
+  • validates token expiry (72h) and not-already-decided
+  • writes reviewDecision to DynamoDB
+  • returns HTML confirmation page with link back to dashboard
 
 Reviewer uses UI → ApproveRejectLambda
-  - DynamoDB update + SES confirmation email run concurrently
-  - Lambda waits for both before returning (CompletableFuture.allOf)
-  - Confirmation email sent to reviewer with decision summary
+  • DynamoDB update + SES confirmation email run concurrently
+    (CompletableFuture.allOf — returns only when both complete)
+  • confirmation email sent to reviewer with decision summary
 ```
+
+---
+
+## Inbound Email (SES)
+
+Inbound invoices arrive at `invoices@zexxity.online` via Amazon SES receipt rules.
+
+| Item | Value |
+|---|---|
+| Domain | `zexxity.online` |
+| Receipt rule set | `invoice-inbound` |
+| Rule | `save-and-process-invoices` (enabled) |
+| Action | Deliver to S3 bucket `ses-inbound-emails-m3/emails/` |
+| Trigger | Invokes `ses-inbound-handler` |
+| MX record | `inbound-smtp.ap-south-1.amazonaws.com` |
+
+Receiving mail requires SES production access (out of the sandbox) and the domain
+identity verified.
 
 ---
 
@@ -183,30 +242,31 @@ Reviewer uses UI → ApproveRejectLambda
 
 | Function | Schedule | Action |
 |---|---|---|
-| `daily-digest-report` | Daily 08:00 IST | Emails summary of new invoices, backlog, high-risk pending |
-| `expired-review-cleanup` | Daily | Escalates REVIEW_REQUIRED invoices with no decision after 72h, sends fresh links |
-| `weekly-s3-cleanup` | Every Sunday 02:00 UTC | Deletes raw PDFs older than 30 days. Audit JSON is never deleted. |
+| `daily-digest-report` | Daily 08:00 IST | Emails summary: new invoices, backlog, high-risk pending |
+| `expired-review-cleanup` | Daily | Escalates `REVIEW_REQUIRED` items undecided after 72 hours; sends fresh links |
+| `weekly-s3-cleanup` | Sunday 02:00 UTC | Deletes raw PDFs older than 30 days. Audit JSON is never deleted. |
 
 ---
 
-## Frontend (React)
+## Frontend
 
-- Built with **React 19 + Vite**
-- Hosted on **AWS Amplify** — auto-deploys on push to `main`
-- Connects to API Gateway via `VITE_API_BASE_URL` environment variable
+React 19 + Vite SPA hosted on AWS Amplify (auto-deploys on push to `main`).
+Connects to API Gateway via the `VITE_API_BASE_URL` build-time environment variable.
 
 **Pages:**
-- `/` — Dashboard with metrics (total, AI approved, review required, duplicates, human approved/rejected, avg confidence)
+
+- `/` — Dashboard: totals, AI approved/rejected, review queue, duplicates, average confidence
 - `/upload` — Drag-and-drop PDF upload with progress tracking
-- `/review` — Pending approval queue with approve/reject decision form
-- `/audit` — Full invoice history with filters and CSV export
+- `/review` — Pending-approval queue with decision form
+- `/audit` — Full history, filters, and CSV export
+- `/login` — ProtectedRoute-gated reviewer sign-in
 
 **Local development:**
+
 ```bash
 cd invoice-reviewer-react
 npm install
-npm run dev
-# opens at http://localhost:5173
+npm run dev        # http://localhost:5173
 ```
 
 ---
@@ -216,28 +276,31 @@ npm run dev
 ```
 invoice-processing/
 ├── src/main/java/com/invoice/processing/
-│   ├── ApproveRejectHandler.java        POST /invoices/review + SES confirmation
-│   ├── DailyDigestHandler.java          scheduled digest email
-│   ├── ExpiredReviewCleanupHandler.java daily 72h escalation
-│   ├── GetInvoiceHandler.java           GET /invoices
-│   ├── InvoiceData.java                 Textract data model
-│   ├── InvoiceExtractionHandler.java    core pipeline (Textract + Bedrock + SES)
-│   ├── S3CleanupHandler.java            weekly PDF cleanup
-│   ├── SecretsManagerConfig.java        singleton config from Secrets Manager
-│   ├── SesInboundHandler.java           email ingestion (eu-west-1)
-│   ├── TokenApprovalHandler.java        one-click email approval
-│   └── UploadUrlHandler.java            S3 presigned URL generator
-├── invoice-reviewer-react/              React + Vite frontend (Amplify hosted)
+│   ├── ApproveRejectHandler.java         POST /invoices/review + concurrent SES confirmation
+│   ├── DailyDigestHandler.java           scheduled digest email
+│   ├── ExpiredReviewCleanupHandler.java  daily 72h escalation
+│   ├── GetInvoiceHandler.java            GET /invoices (parallel GSI metric counts)
+│   ├── InvoiceData.java                  Textract data model
+│   ├── InvoiceExtractionHandler.java     core pipeline (Textract + Bedrock + SES)
+│   ├── S3CleanupHandler.java             weekly PDF cleanup
+│   ├── SecretsManagerConfig.java         singleton config from Secrets Manager
+│   ├── SesInboundHandler.java            inbound email ingestion
+│   ├── TokenApprovalHandler.java         one-click email approval
+│   └── UploadUrlHandler.java             presigned S3 URL generator
+├── invoice-reviewer-react/               React + Vite frontend (Amplify hosted)
 │   ├── src/
-│   │   ├── components/                  Navbar, MetricCard, FileQueue, etc.
-│   │   ├── pages/                       Dashboard, Upload, Review, Audit, Login
-│   │   ├── services/                    authService, uploadService, reviewService, etc.
-│   │   └── hooks/                       useDashboard, useReview, useUpload, useAudit
+│   │   ├── components/                   Navbar, MetricCard, FileQueue, DecisionForm, ...
+│   │   ├── pages/                        Dashboard, Upload, Review, Audit, Login
+│   │   ├── services/                     auth, dashboard, review, upload, audit
+│   │   └── hooks/                        useDashboard, useReview, useUpload, useAudit
 │   ├── package.json
 │   └── vite.config.js
-├── load-tests/                          JMeter test suite (6 thread groups)
-├── amplify.yml                          Amplify build config
-├── template.yaml                        SAM / CloudFormation
+├── load-tests/                           JMeter suite (all API endpoints)
+├── migration/                            account-migration runbook + SAM template v2
+├── .github/workflows/maven.yml           CI: Maven build + dependency graph
+├── amplify.yml                           Amplify build config
+├── deploy.ps1                            one-command AWS deployment
+├── template.yaml                         SAM / CloudFormation (backend)
 └── pom.xml
 ```
 
@@ -245,35 +308,55 @@ invoice-processing/
 
 ## Local Build & Deploy
 
-**Prerequisites:** Java 21, Maven 3.9+, AWS CLI v2
+**Prerequisites:** Java 21, Maven 3.9+, AWS CLI v2, SAM CLI.
 
 ```bash
-# Build the JAR
+# Build the Lambda JAR
 mvn clean package -DskipTests
 
-# Upload to S3 (26 MB — exceeds direct upload limit)
+# Upload to the SAM staging bucket
 aws s3 cp target/invoice-extraction-lambda-1.0-SNAPSHOT.jar \
-  s3://invoice-processing-deploy-977574654100/lambda/invoice-lambda.jar \
+  s3://invoice-processing-deploy-<account-id>/lambda/invoice-lambda.jar \
   --region ap-south-1
 
-# Deploy a Lambda (example — ApproveRejectLambda)
+# Update a single Lambda (example)
 aws lambda update-function-code \
   --function-name ApproveRejectLambda \
-  --s3-bucket invoice-processing-deploy-977574654100 \
+  --s3-bucket invoice-processing-deploy-<account-id> \
   --s3-key lambda/invoice-lambda.jar \
   --region ap-south-1
 ```
 
-**Frontend** deploys automatically via Amplify on every push to `main`.
+Or deploy everything with the helper script:
+
+```powershell
+.\deploy.ps1
+```
+
+The frontend deploys automatically through Amplify on every push to `main`.
 
 ---
 
-## Load Tests (JMeter)
+## CI/CD
 
-Located in `load-tests/`. Covers all 6 API endpoints.
+- **GitHub Actions** (`.github/workflows/maven.yml`) builds the project with Maven on
+  every push/PR and submits the dependency graph for Dependabot.
+- **AWS Amplify** builds and hosts the React frontend, auto-deploying on push to `main`.
 
-```bash
-.\load-tests\run.ps1 -Profile smoke      # 1 VU, ~30s sanity check
-.\load-tests\run.ps1 -Profile baseline   # 10-15 VUs, ~2 min
+---
+
+## Load Testing
+
+JMeter suites live in `load-tests/` and cover all API endpoints.
+
+```powershell
+.\load-tests\run.ps1 -Profile smoke      # 1 VU, ~30 s sanity check
+.\load-tests\run.ps1 -Profile baseline   # 10–15 VUs, ~2 min
 .\load-tests\run.ps1 -Profile stress     # up to 50 VUs, ~5 min
 ```
+
+---
+
+## License
+
+This is a private project. Reuse requires permission from the repository owner.
