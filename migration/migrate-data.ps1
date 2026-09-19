@@ -72,7 +72,7 @@ if ($oldId -ne $OldAccount) { Write-Warning "Old profile returns $oldId, expecte
 # ── 1. Create destination buckets (with NEW names) ──────────────────────────
 Log "Ensuring destination buckets exist in the new account..."
 
-function Ensure-Bucket($profile, $bucket, $region) {
+function Ensure-Bucket($profile, $bucket, $region, [switch]$WithCors) {
     $exists = aws s3api head-bucket --bucket $bucket --profile $profile 2>$null
     if ($LASTEXITCODE -ne 0) {
         aws s3api create-bucket --bucket $bucket --region $region `
@@ -91,9 +91,23 @@ function Ensure-Bucket($profile, $bucket, $region) {
         --notification-configuration ("file://" + $ncfg.Replace('\','/')) --profile $profile | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning "Could not enable EventBridge notifications on $bucket" }
     else { Ok "EventBridge notifications enabled: $bucket" }
+
+    # CORS: REQUIRED for the browser to PUT presigned-URL uploads directly to the
+    # invoice bucket (without this the browser blocks uploads: "Network error").
+    if ($WithCors) {
+        $cors = Join-Path $StagingDir "cors-$bucket.json"
+        $corsJson = @'
+{"CORSRules":[{"AllowedHeaders":["*"],"AllowedMethods":["GET","PUT","POST","DELETE","HEAD"],"AllowedOrigins":["https://zexxity.online","https://www.zexxity.online","http://localhost:5173","https://main.d19y00sxkvzipk.amplifyapp.com"],"ExposeHeaders":["ETag","Access-Control-Allow-Origin"]}]}
+'@
+        [System.IO.File]::WriteAllText($cors, $corsJson, (New-Object System.Text.UTF8Encoding($false)))
+        aws s3api put-bucket-cors --bucket $bucket `
+            --cors-configuration ("file://" + $cors.Replace('\','/')) --profile $profile | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "Could not set CORS on $bucket" }
+        else { Ok "CORS enabled (browser PUT): $bucket" }
+    }
 }
 
-Ensure-Bucket $NewProfile $InvoiceBucket $InvoiceRegion
+Ensure-Bucket $NewProfile $InvoiceBucket $InvoiceRegion -WithCors
 Ensure-Bucket $NewProfile $SesBucket $SesRegion
 
 # ── 2. S3 copy: old -> local staging -> new ─────────────────────────────────
