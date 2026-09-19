@@ -39,7 +39,9 @@ public class TokenApprovalHandler
             ? System.getenv("DYNAMO_TABLE") : "invoices";
     private static final long   TOKEN_TTL_SECONDS    = 72 * 60 * 60L; // 72 hours
 
-    private final DynamoDbClient dynamoDbClient = DynamoDbClient.builder()
+    // Built eagerly at handler init so the SDK stack is captured in the SnapStart
+    // snapshot; the restored environment reuses this fully-formed client.
+    private static final DynamoDbClient dynamoDbClient = DynamoDbClient.builder()
             .region(Region.AP_SOUTH_1).build();
 
     private final ObjectMapper objectMapper = new ObjectMapper();

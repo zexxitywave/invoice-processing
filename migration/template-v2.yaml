@@ -200,6 +200,7 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       MemorySize: 512
       Timeout: 30
+      AutoPublishAlias: live
       Events:
         GetAll:
           Type: HttpApi
@@ -217,6 +218,7 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       MemorySize: 512
       Timeout: 30
+      AutoPublishAlias: live
       Events:
         Decision:
           Type: HttpApi
@@ -234,6 +236,7 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       MemorySize: 2048
       Timeout: 15
+      AutoPublishAlias: live
       Environment:
         Variables:
           INVOICE_BUCKET: !Ref InvoiceBucketName
@@ -254,6 +257,7 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       MemorySize: 512
       Timeout: 30
+      AutoPublishAlias: live
       Events:
         Approve:
           Type: HttpApi
@@ -267,6 +271,54 @@ Resources:
             ApiId: !Ref InvoiceApi
             Path: /invoices/reject
             Method: GET
+
+  # ── Lambda: Warm-up (keeps interactive containers hot every 5 min) ─────────
+  WarmUpFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda-warm
+      Handler: com.invoice.processing.WarmUpHandler::handleRequest
+      Role: !GetAtt WarmUpRole.Arn
+      MemorySize: 256
+      Timeout: 60
+      Environment:
+        Variables:
+          WARM_TARGETS: !Sub >-
+            arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:GetInvoiceLambda:live,
+            arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:ApproveRejectLambda:live,
+            arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:UploadUrlLambda:live,
+            arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:token-approval:live
+      Events:
+        WarmSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Enabled: true
+
+  WarmUpRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: WarmUpInvoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:GetInvoiceLambda:live"
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:ApproveRejectLambda:live"
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:UploadUrlLambda:live"
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:token-approval:live"
 
   # ── API Gateway (HTTP API, $default stage, CORS) ───────────────────────────
   InvoiceApi:

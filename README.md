@@ -372,6 +372,30 @@ Failure recovery relies on **built-in retries only**:
 Notably, EventBridge is **at-least-once**: retries can re-process the same object, so
 extraction must be idempotent (dedupe on `invoiceId` / `objectKey`).
 
+### Cold-start tuning (warm-up lambda)
+
+The four interactive functions (`GetInvoiceLambda`, `ApproveRejectLambda`,
+`UploadUrlLambda`, `token-approval`) are published with a `live` alias. A
+scheduled `lambda-warm` (every 5 minutes) synchronously invokes all four `live`
+aliases, keeping their execution environments warm. Handlers build AWS SDK
+clients eagerly so their class graphs are fully initialized on the first call.
+
+Measured against the live API (`GET /invoices`, 512 MB, ap-south-1):
+
+| Case | Latency |
+|---|---|
+| Warm request (steady traffic) | ~200–350 ms |
+| First request on a hydrated container | ~200–300 ms |
+| Cold start after >15 min idle (rare) | ~5.5 s |
+
+Notes: Lambda **SnapStart** was evaluated but rejected in production because this
+account's regional concurrency quota is only **10**, and AWS does not allow
+Provisioned Concurrency on SnapStart functions (nor PC at all once it would drop
+unreserved concurrency below the 10 minimum). The warm-up lambda costs a few
+milliseconds of billing every 5 minutes and is the zero-quota-change way to keep
+the interactive path hot. If traffic grows, raise quota `L-B99A9384` and switch
+to Provisioned Concurrency on the `live` alias instead.
+
 ### Known failure modes & edge cases
 
 | # | Risk | Failure scenario | Impact |

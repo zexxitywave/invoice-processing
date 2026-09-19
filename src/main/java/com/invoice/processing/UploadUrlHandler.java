@@ -48,7 +48,9 @@ public class UploadUrlHandler
 
     private static final int    URL_EXPIRY_SECONDS = 300;   // 5 minutes
 
-    private final S3Presigner presigner = S3Presigner.builder()
+    // Built eagerly at handler init so the S3 signing stack is captured in the
+    // SnapStart snapshot; a restored environment reuses this presigner.
+    private static final S3Presigner presigner = S3Presigner.builder()
             .region(Region.AP_SOUTH_1)
             .build();
 

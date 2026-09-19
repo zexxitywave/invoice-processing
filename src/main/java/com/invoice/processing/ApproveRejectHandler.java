@@ -38,10 +38,12 @@ public class ApproveRejectHandler
     private static final String DYNAMO_TABLE = System.getenv("DYNAMO_TABLE") != null
             ? System.getenv("DYNAMO_TABLE") : "invoices";
 
-    private final DynamoDbClient dynamoDbClient = DynamoDbClient.builder()
+    // Built eagerly at handler init so both SDK stacks are captured in the
+    // SnapStart snapshot; restored environments reuse these fully-formed clients.
+    private static final DynamoDbClient dynamoDbClient = DynamoDbClient.builder()
             .region(Region.AP_SOUTH_1).build();
 
-    private final SesV2Client sesClient = SesV2Client.builder()
+    private static final SesV2Client sesClient = SesV2Client.builder()
             .region(Region.AP_SOUTH_1).build();
 
     private final ObjectMapper objectMapper = new ObjectMapper();
