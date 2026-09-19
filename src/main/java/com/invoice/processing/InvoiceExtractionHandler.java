@@ -24,6 +24,8 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.sesv2.SesV2Client;
 import software.amazon.awssdk.services.sesv2.model.Body;
@@ -85,6 +87,17 @@ public class InvoiceExtractionHandler
 
 
             context.getLogger().log("Bucket: " + bucketName + "  Key: " + objectKey);
+
+            // 1b. Capture when the PDF was published to S3 (drives the dashboard "Uploaded" date)
+            Instant uploadedAt = Instant.now();
+            try {
+                HeadObjectResponse head = s3Client.headObject(
+                        HeadObjectRequest.builder().bucket(bucketName).key(objectKey).build());
+                if (head.lastModified() != null) uploadedAt = head.lastModified();
+            } catch (Exception e) {
+                context.getLogger().log("WARN: could not read S3 lastModified: " + e.getMessage());
+            }
+            context.getLogger().log("Uploaded at (S3 lastModified): " + uploadedAt);
 
             // 2. Textract – AnalyzeExpense
             AnalyzeExpenseResponse textractResponse = textractClient.analyzeExpense(
@@ -173,7 +186,7 @@ public class InvoiceExtractionHandler
             String invoiceId = resolveInvoiceId(invoiceData);
             Map<String, AttributeValue> item = buildDynamoItem(
                     invoiceId, invoiceData, risk, validationStatus,
-                    comments, missingFields, avgConfidence);
+                    comments, missingFields, avgConfidence, uploadedAt);
 
             dynamoDbClient.putItem(PutItemRequest.builder()
                     .tableName(DYNAMO_TABLE).item(item).build());
@@ -456,7 +469,7 @@ Return ONLY valid JSON – no markdown fences, no extra text.
             String invoiceId, InvoiceData data,
             String risk, String validationStatus,
             String comments, List<String> missingFields,
-            double avgConfidence) {
+            double avgConfidence, Instant createdAt) {
 
         Map<String, AttributeValue> item = new HashMap<>();
 
@@ -474,6 +487,7 @@ Return ONLY valid JSON – no markdown fences, no extra text.
         item.put("totalConfidence",   n(data.getTotalConfidence()));
         item.put("invoiceIdConfidence", n(data.getInvoiceIdConfidence()));
         item.put("dateConfidence",    n(data.getDateConfidence()));
+        item.put("createdAt",         s(createdAt != null ? createdAt.toString() : Instant.now().toString()));
 
         return item;
     }
