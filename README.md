@@ -396,6 +396,44 @@ milliseconds of billing every 5 minutes and is the zero-quota-change way to keep
 the interactive path hot. If traffic grows, raise quota `L-B99A9384` and switch
 to Provisioned Concurrency on the `live` alias instead.
 
+### SnapStart evaluation — before & after
+
+Before settling on the warm-up lambda we evaluated **Lambda SnapStart** on the four
+interactive functions (the published `live` versions, 512 MB, ap-south-1). SnapStart
+takes a snapshot of the fully-initialized JVM — class graph, eager SDK clients, and
+JIT state — and **restores that snapshot on cold start instead of re-running init**.
+
+| Scenario | `Init` / `Restore` duration | Cold request (end-to-end) | Warm request |
+|---|---|---|---|
+| **Before** — no SnapStart | `Init Duration ≈ 2,600 ms` | ≈ 5.5 s | ≈ 200–350 ms |
+| **After** — SnapStart on `live` | `Restore Duration ≈ 360–570 ms` (`RESTORE_REPORT`) | ≈ 0.6–1.0 s | ≈ 200–350 ms |
+
+What the evaluation showed:
+
+- **Restore is ~5× faster than init.** The first request after a cold start pays
+  ~0.4 s of snapshot restore instead of ~2.6 s of JVM + SDK initialization.
+- **SDK clients must be built eagerly.** The four handlers construct their AWS SDK
+  clients in `static final` fields so they exist *before* the snapshot is taken. When
+  we tried lazy construction (creating clients on first use, i.e. *after* restore), the
+  very first call ballooned to ~10 s because the entire SDK graph had to initialize
+  post-restore. Eager init is what makes the snapshot pay off — and it also helps the
+  warm-up path described above.
+- **SnapStart works only on published versions.** The functions use
+  `AutoPublishAlias: live`, and both API Gateway and the warm-up lambda target the
+  alias/version (never `$LATEST`).
+- **Not all state survives the snapshot.** Open network connections, random seeds, and
+  credentials are not preserved; a restored environment rebuilds them, so the first
+  outbound call still pays normal connection setup.
+
+**Why it is not enabled in production:** SnapStart cannot be combined with Provisioned
+Concurrency, and this account's regional concurrency quota is only **10** (`L-B99A9384`;
+the default is 1000 and it is still ramping up). Reserving any concurrency would drop
+unreserved concurrency below the required minimum of 10, so neither Provisioned nor
+Reserved Concurrency is possible today. The warm-up lambda was chosen as the
+zero-quota-change alternative. If the quota is raised, the plan is to enable Provisioned
+Concurrency on the `live` alias, at which point SnapStart becomes optional (the two are
+mutually exclusive).
+
 ### Known failure modes & edge cases
 
 | # | Risk | Failure scenario | Impact |
