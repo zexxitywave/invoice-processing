@@ -55,6 +55,15 @@ export default function InvoiceDetail({
         />
 
         <DetailItem
+          label="Uploaded"
+          value={
+            invoice.createdAt
+              ? new Date(invoice.createdAt).toLocaleString()
+              : "—"
+          }
+        />
+
+        <DetailItem
           label="Subtotal"
           value={invoice.subtotal}
         />
