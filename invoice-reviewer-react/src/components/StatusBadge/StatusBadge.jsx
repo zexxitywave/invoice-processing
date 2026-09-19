@@ -11,6 +11,7 @@ const statusDots = {
   HIGH: "🔴",
   REJECTED: "🔴",
   PENDING: "⚪",
+  NOT_REQUIRED: "➖",
 };
 
 export default function StatusBadge({
@@ -22,7 +23,7 @@ export default function StatusBadge({
     `status-badge--${type}`,
     `status-badge--${String(value)
       .toLowerCase()
-      .replace(/\s+/g, "-")}`
+      .replace(/[\s_]+/g, "-")}`
   );
 
   const formattedValue =

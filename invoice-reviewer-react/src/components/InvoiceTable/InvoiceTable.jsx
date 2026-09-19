@@ -1,5 +1,6 @@
 import StatusBadge from "../StatusBadge";
 import ConfidenceBar from "../ConfidenceBar";
+import { humanReviewValue } from "../../utils/humanReview";
 import "./InvoiceTable.css";
 
 function formatDate(raw) {
@@ -66,7 +67,7 @@ export default function InvoiceTable({
                   <td><strong>{invoice.total || "—"}</strong></td>
                   <td><StatusBadge type="risk" value={invoice.risk} /></td>
                   <td><StatusBadge type="ai" value={invoice.validationStatus} /></td>
-                  <td><StatusBadge type="human" value={invoice.reviewDecision || "PENDING"} /></td>
+                  <td><StatusBadge type="human" value={humanReviewValue(invoice)} /></td>
                   <td><ConfidenceBar value={invoice.totalConfidence ?? invoice.avgConfidence} /></td>
                   <td>
                     {canReview ? (

@@ -1,5 +1,6 @@
 import StatusBadge from "../StatusBadge";
 import ConfidenceBar from "../ConfidenceBar";
+import { humanReviewValue } from "../../utils/humanReview";
 
 import "./InvoiceDetail.css";
 
@@ -127,10 +128,9 @@ export default function InvoiceDetail({
 
           <StatusBadge
             type="human"
-            value={
-              invoice.reviewDecision ||
-              "PENDING"
-            }
+            value={humanReviewValue(
+              invoice
+            )}
           />
 
           <div className="verdict-extra">

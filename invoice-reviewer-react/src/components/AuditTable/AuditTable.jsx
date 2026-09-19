@@ -1,5 +1,6 @@
 import StatusBadge from "../StatusBadge";
 import ConfidenceBar from "../ConfidenceBar";
+import { humanReviewValue } from "../../utils/humanReview";
 import "./AuditTable.css";
 
 export default function AuditTable({
@@ -38,7 +39,7 @@ export default function AuditTable({
                 <td>{invoice.vendorName || "—"}</td>
                 <td>{invoice.total || "—"}</td>
                 <td><StatusBadge type="ai" value={invoice.validationStatus} /></td>
-                <td><StatusBadge type="human" value={invoice.reviewDecision || "PENDING"} /></td>
+                <td><StatusBadge type="human" value={humanReviewValue(invoice)} /></td>
                 <td><StatusBadge type="risk" value={invoice.risk} /></td>
                 <td><ConfidenceBar value={invoice.avgConfidence ?? invoice.totalConfidence} /></td>
               </tr>
