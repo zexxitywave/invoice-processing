@@ -357,6 +357,78 @@ JMeter suites live in `load-tests/` and cover all API endpoints.
 
 ---
 
+## Resilience, Known Limitations & Future Roadmap
+
+### Current reliability model
+
+Failure recovery relies on **built-in retries only**:
+
+- **S3 → EventBridge → Lambda:** EventBridge retries up to **24 h / 185 attempts**.
+  On persistent failure the event is **silently dropped** — no dead-letter queue.
+- **Lambda async invocations:** retried twice; a DLQ is only used *if configured* (not today).
+- **SES inbound receipt rule:** retried ~2–3 times ~20 min apart, then **the email is lost**.
+- **Browser → S3 upload:** **no client-side retry** — a failed PUT requires a manual retry.
+
+Notably, EventBridge is **at-least-once**: retries can re-process the same object, so
+extraction must be idempotent (dedupe on `invoiceId` / `objectKey`).
+
+### Known failure modes & edge cases
+
+| # | Risk | Failure scenario | Impact |
+|---|---|---|---|
+| 1 | Poison messages | A PDF is password-protected, corrupt, or a non-supported format | Function retries for up to 24 h, then silently drops the invoice |
+| 2 | Large / multi-page invoices | PDFs over the synchronous Textract limits (≈5 MB) or very long documents time out the 60 s Lambda | Invoice never processed or is dropped |
+| 3 | Upload network failure | Browser PUT to the presigned URL fails mid-flight; the 5-min URL expires during retry | User must re-upload manually; no queue/retry |
+| 4 | Duplicate processing | Same object re-delivered by S3/EventBridge retry | Duplicate record or double Textract/Bedrock cost |
+| 5 | Email without a legible PDF | HTML-only email, no attachment, `docx`/`xlsx` attachment, scanned/photo PDF below quality bar | Nothing extracted; email lost after SES retries |
+| 6 | Abuse / billing attack | Public API endpoints: anyone can call `/invoices/upload-url` and upload arbitrary files via presigned URLs | Unbounded Textract/Bedrock spend; storage abuse |
+| 7 | Unauthenticated review data | `GET /invoices` exposes vendor names + amounts behind only a client-side route guard | Data leak risk; no real authorization |
+| 8 | Review race condition | Reviewer approves via dashboard and the one-click email link simultaneously | Double decision; last-write-wins without a conditional update |
+| 9 | Token replay | One-click approval token valid for 72 h | Repeated approvals possible if no idempotency check |
+| 10 | Silent operational failure | No dead-letter queue, no CloudWatch alarms, no SES bounce/complaint handling | Failures go unnoticed until a user complains |
+| 11 | Invoice stuck forever | `expired-review-cleanup` escalates undecided items; if that scheduled job itself fails, items remain `REVIEW_REQUIRED` indefinitely | Review queue grows silently |
+| 12 | Sender/billing dependencies | Backend default config points to a stale API URL; sandbox-mode SES limits verified recipients | Emails rejected (`Email address is not verified`) |
+| 13 | Regional single point of failure | Everything lives in `ap-south-1` | Regional outage takes the whole system offline (accepted cost trade-off) |
+
+### Roadmap — proposed hardening
+
+1. **Durable pipeline with SQS + DLQ**
+   Route `S3 → EventBridge → SQS` and let `invoice-extraction-lambda` consume from the
+   queue. Add a dead-letter queue with `maxReceiveCount: 5` and a CloudWatch alarm on its
+   depth. Nothing is silently lost; poison messages can be inspected and replayed.
+
+2. **Frontend upload retry**
+   On PUT failure, re-request a fresh `/upload-url` and retry with exponential backoff
+   (3–5 attempts). Set upload size/type limits client-side as a first cheap guard.
+
+3. **Idempotent extraction**
+   Dedupe by `objectKey` (check before Textract, or use a conditional write on
+   `invoiceId` + `sourceFile`) so retries never double-process an invoice.
+
+4. **Async extraction for large documents**
+   Switch to asynchronous Textract (`StartExpenseAnalysis`) for multi-page files and
+   process the completion event; keeps within Lambda limits and handles big PDFs.
+
+5. **Real authorization & rate limiting**
+   Add API Gateway authorizer (e.g. Amazon Cognito or a JWT) instead of a client-side
+   route guard; enforce per-IP throttling on `/invoices/upload-url`; validate content
+   type and size before issuing the presigned URL.
+
+6. **Operational observability**
+   CloudWatch alarms on Lambda errors/throttles, DLQ depth, SES bounce + complaint
+   notifications, DynamoDB throttle events, and daily-digest failure. Add a runbook for
+   DLQ replay.
+
+7. **Security hardening**
+   Enable S3 default encryption (SSE-S3/KMS) and bucket versioning; encrypt DynamoDB at
+   rest; restrict IAM to least privilege; turn on CloudTrail for audit.
+
+8. **Regional DR (optional / costly)**
+   If needed later, replicate DynamoDB + S3 to a second region and fail over DNS. Single
+   region is the deliberate cost trade-off today.
+
+---
+
 ## License
 
 This is a private project. Reuse requires permission from the repository owner.
