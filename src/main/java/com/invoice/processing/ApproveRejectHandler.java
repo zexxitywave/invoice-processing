@@ -55,6 +55,19 @@ public class ApproveRejectHandler
             context.getLogger().log("⏱ [TIMING] ApproveRejectHandler started");
             context.getLogger().log("ApproveReject EVENT: " + objectMapper.writeValueAsString(event));
 
+            // ── Warm-up ping ──────────────────────────────────────────────────
+            // The scheduled lambda-warm invokes this alias with {"warmup":true}.
+            // Touch DynamoDB so the SDK's HTTP connection pool is primed; otherwise
+            // the first real review pays the ~3-4s connection-setup cost.
+            if (Boolean.TRUE.equals(event.get("warmup"))) {
+                dynamoDbClient.describeTable(b -> b.tableName(DYNAMO_TABLE));
+                context.getLogger().log("WARMUP: DynamoDB connection primed");
+                Map<String, Object> warm = new HashMap<>();
+                warm.put("statusCode", 200);
+                warm.put("body", "{\"warmup\":true}");
+                return warm;
+            }
+
             // ── Parse body ────────────────────────────────────────────────────
             String bodyStr = (String) event.get("body");
             if (bodyStr == null || bodyStr.isBlank()) {

@@ -59,6 +59,18 @@ public class GetInvoiceHandler
         try {
             context.getLogger().log("GetInvoice EVENT: " + objectMapper.writeValueAsString(event));
 
+            // ── Warm-up ping ──────────────────────────────────────────────────
+            // Prime the DynamoDB connection when invoked by the scheduled
+            // lambda-warm ({"warmup":true}) instead of a real API request.
+            if (Boolean.TRUE.equals(event.get("warmup"))) {
+                dynamoDbClient.describeTable(b -> b.tableName(DYNAMO_TABLE));
+                context.getLogger().log("WARMUP: DynamoDB connection primed");
+                Map<String, Object> warm = new HashMap<>();
+                warm.put("statusCode", 200);
+                warm.put("body", "{\"warmup\":true}");
+                return warm;
+            }
+
             // Extract ?id=... query parameter if present
             String invoiceId = null;
             Object qsp = event.get("queryStringParameters");

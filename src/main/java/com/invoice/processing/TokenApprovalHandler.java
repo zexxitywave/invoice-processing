@@ -52,6 +52,18 @@ public class TokenApprovalHandler
             context.getLogger().log("TokenApproval EVENT: "
                     + objectMapper.writeValueAsString(event));
 
+            // ── Warm-up ping ──────────────────────────────────────────────────
+            // Prime the DynamoDB connection when invoked by the scheduled
+            // lambda-warm ({"warmup":true}) instead of a real token click.
+            if (Boolean.TRUE.equals(event.get("warmup"))) {
+                dynamoDbClient.describeTable(b -> b.tableName(DYNAMO_TABLE));
+                context.getLogger().log("WARMUP: DynamoDB connection primed");
+                Map<String, Object> warm = new HashMap<>();
+                warm.put("statusCode", 200);
+                warm.put("body", "{\"warmup\":true}");
+                return warm;
+            }
+
             // ── Get token from query string ────────────────────────────────────
             String token = null;
             Object qsp = event.get("queryStringParameters");
