@@ -16,6 +16,8 @@ import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRespon
  *   "sesSender"   : "noreply@zexxity.online",
  *   "sesReviewer" : "invydexter@gmail.com",
  *   "modelId"     : "global.amazon.nova-2-lite-v1:0",
+ *   "brevoApiKey" : "xkeysib-...",
+ *   "brevoSender" : "invydexter@gmail.com",
  *   "frontendUrl" : "https://www.zexxity.online"
  * }
  *
@@ -37,6 +39,8 @@ public class SecretsManagerConfig {
     private final String sesReviewer;
     private final String modelId;
     private final String frontendUrl;
+    private final String brevoApiKey;
+    private final String brevoSender;
 
     // ── Singleton ──────────────────────────────────────────────────────────────
     private static volatile SecretsManagerConfig INSTANCE;
@@ -58,6 +62,8 @@ public class SecretsManagerConfig {
         String reviewer    = null;
         String model       = null;
         String url         = null;
+        String brevo       = null;
+        String brevoFrom   = null;
 
         try {
             SecretsManagerClient client = SecretsManagerClient.builder()
@@ -75,6 +81,8 @@ public class SecretsManagerConfig {
             reviewer = textOrNull(root, "sesReviewer");
             model    = textOrNull(root, "modelId");
             url      = textOrNull(root, "frontendUrl");
+            brevo    = textOrNull(root, "brevoApiKey");
+            brevoFrom = textOrNull(root, "brevoSender");
 
             System.out.println("SecretsManagerConfig: loaded from Secrets Manager.");
 
@@ -89,10 +97,14 @@ public class SecretsManagerConfig {
         this.sesReviewer  = firstNonBlank(reviewer, System.getenv("SES_REVIEWER"),  DEFAULT_REVIEWER);
         this.modelId      = firstNonBlank(model,    System.getenv("MODEL_ID"),      DEFAULT_MODEL_ID);
         this.frontendUrl  = firstNonBlank(url,      System.getenv("FRONTEND_URL"),  DEFAULT_FRONTEND_URL);
+        this.brevoApiKey  = firstNonBlank(brevo,    System.getenv("BREVO_API_KEY"),  "");
+        this.brevoSender  = firstNonBlank(brevoFrom, System.getenv("BREVO_SENDER"),  this.sesSender);
 
         System.out.println("SecretsManagerConfig: sesSender="   + this.sesSender);
         System.out.println("SecretsManagerConfig: sesReviewer=" + this.sesReviewer);
         System.out.println("SecretsManagerConfig: frontendUrl=" + this.frontendUrl);
+        System.out.println("SecretsManagerConfig: brevoApiKey="
+                + (this.brevoApiKey.isEmpty() ? "(NOT SET)" : "(configured, " + this.brevoApiKey.length() + " chars)"));
     }
 
     // ── Accessors ──────────────────────────────────────────────────────────────
@@ -100,6 +112,8 @@ public class SecretsManagerConfig {
     public String getSesReviewer()  { return sesReviewer;  }
     public String getModelId()      { return modelId;      }
     public String getFrontendUrl()  { return frontendUrl;  }
+    public String getBrevoApiKey()  { return brevoApiKey;  }
+    public String getBrevoSender()  { return brevoSender;  }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
     private static String textOrNull(JsonNode node, String field) {

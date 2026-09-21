@@ -15,19 +15,12 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
-import software.amazon.awssdk.services.sesv2.SesV2Client;
-import software.amazon.awssdk.services.sesv2.model.Body;
-import software.amazon.awssdk.services.sesv2.model.Content;
-import software.amazon.awssdk.services.sesv2.model.Destination;
-import software.amazon.awssdk.services.sesv2.model.EmailContent;
-import software.amazon.awssdk.services.sesv2.model.Message;
-import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
 
 /**
  * ApproveRejectHandler – called by API Gateway when the reviewer clicks
  * [Approve] or [Reject] in the Amplify UI.
  *
- * DynamoDB write and SES email run in parallel via CompletableFuture.
+ * DynamoDB write and email send run in parallel via CompletableFuture.
  * Lambda waits for BOTH to complete before returning — so the email is
  * guaranteed to be dispatched while keeping total latency low (both
  * operations run concurrently instead of sequentially).
@@ -41,9 +34,6 @@ public class ApproveRejectHandler
     // Built eagerly at handler init so both SDK stacks are captured in the
     // SnapStart snapshot; restored environments reuse these fully-formed clients.
     private static final DynamoDbClient dynamoDbClient = DynamoDbClient.builder()
-            .region(Region.AP_SOUTH_1).build();
-
-    private static final SesV2Client sesClient = SesV2Client.builder()
             .region(Region.AP_SOUTH_1).build();
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -124,14 +114,14 @@ public class ApproveRejectHandler
             CompletableFuture<Void> sesFuture = CompletableFuture.runAsync(() -> {
                 try {
                     sendConfirmationEmail(fInvoiceId, fDecision, fReviewer, fReason, context);
-                    context.getLogger().log("⏱ [TIMING] SES email sent, elapsed: "
+                    context.getLogger().log("⏱ [TIMING] confirmation email sent, elapsed: "
                             + (System.currentTimeMillis() - start) + " ms");
                 } catch (Exception e) {
-                    context.getLogger().log("WARNING: SES email failed: " + e.getMessage());
+                    context.getLogger().log("WARNING: confirmation email failed: " + e.getMessage());
                 }
             });
 
-            // Wait for BOTH DynamoDB AND SES to complete before returning.
+            // Wait for BOTH DynamoDB AND the email send to complete before returning.
             // SES must finish before Lambda returns — otherwise the execution
             // environment freezes and the async thread never completes.
             CompletableFuture.allOf(dynamoFuture, sesFuture).get(15, TimeUnit.SECONDS);
@@ -182,20 +172,7 @@ public class ApproveRejectHandler
                     Instant.now(),
                     cfg.getFrontendUrl());
 
-            sesClient.sendEmail(SendEmailRequest.builder()
-                    .fromEmailAddress(cfg.getSesSender())
-                    .destination(Destination.builder()
-                            .toAddresses(cfg.getSesReviewer())
-                            .build())
-                    .content(EmailContent.builder()
-                            .simple(Message.builder()
-                                    .subject(Content.builder().data(subject).charset("UTF-8").build())
-                                    .body(Body.builder()
-                                            .text(Content.builder().data(body).charset("UTF-8").build())
-                                            .build())
-                                    .build())
-                            .build())
-                    .build());
+            BrevoMailer.send(cfg.getBrevoSender(), cfg.getSesReviewer(), subject, body);
 
             ctx.getLogger().log("Confirmation email sent for " + invoiceId + " → " + decision);
 

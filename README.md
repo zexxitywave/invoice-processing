@@ -92,9 +92,9 @@ Reviewer → https://zexxity.online
 | Amazon DynamoDB | Invoice records + review decisions (on-demand billing) |
 | AWS Textract | PDF extraction (AnalyzeExpense) with per-field confidence |
 | Amazon Bedrock (Nova-Lite) | AI validation, risk scoring, explanations |
-| Amazon SES v2 | Confirmation + reviewer notification emails |
+| Brevo (Sendinblue) | Confirmation + reviewer notification emails |
 | Amazon SES Receipt Rules | Inbound email ingestion (`ap-south-1`) |
-| AWS Secrets Manager | Config: sender, reviewer, model ID, frontend URL |
+| AWS Secrets Manager | Config: sender, reviewer, model ID, Brevo API key/sender, frontend URL |
 | AWS EventBridge | S3 event routing + scheduled jobs |
 | AWS Amplify | Frontend hosting + CI/CD from GitHub |
 | Amazon CloudWatch | Logs and metrics for all functions |
@@ -201,11 +201,17 @@ alongside the risk level and the review reason for transparency.
 
 ## Email Approval Flow
 
+Outbound notification emails are sent through **Brevo (Sendinblue)** — no longer via SES.
+Daily digest and 72h escalation emails also go through Brevo. The sender shown to the
+reviewer is configured by `brevoSender` in the Secrets Manager secret (a Brevo-validated
+address is required; `zexxity.online` can be domain-authenticated in Brevo later to send
+from `noreply@zexxity.online`).
+
 ```
 Invoice flagged REVIEW_REQUIRED
         │
         ▼
-InvoiceExtractionHandler sends SES email with:
+InvoiceExtractionHandler sends Brevo email with:
   • invoice ID, vendor, amount, confidence scores
   • one-click APPROVE / REJECT links (72h Base64URL token)
   • link to the review dashboard: https://zexxity.online/review
@@ -217,7 +223,7 @@ Reviewer clicks link → TokenApprovalHandler
   • returns HTML confirmation page with link back to dashboard
 
 Reviewer uses UI → ApproveRejectLambda
-  • DynamoDB update + SES confirmation email run concurrently
+  • DynamoDB update + Brevo confirmation email run concurrently
     (CompletableFuture.allOf — returns only when both complete)
   • confirmation email sent to reviewer with decision summary
 ```

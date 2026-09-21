@@ -17,13 +17,6 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
-import software.amazon.awssdk.services.sesv2.SesV2Client;
-import software.amazon.awssdk.services.sesv2.model.Body;
-import software.amazon.awssdk.services.sesv2.model.Content;
-import software.amazon.awssdk.services.sesv2.model.Destination;
-import software.amazon.awssdk.services.sesv2.model.EmailContent;
-import software.amazon.awssdk.services.sesv2.model.Message;
-import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
 
 /**
  * ExpiredReviewCleanupHandler – runs daily via EventBridge.
@@ -48,9 +41,6 @@ public class ExpiredReviewCleanupHandler
             : "https://xi78f9b5fe.execute-api.ap-south-1.amazonaws.com";
 
     private final DynamoDbClient dynamo = DynamoDbClient.builder()
-            .region(Region.AP_SOUTH_1).build();
-
-    private final SesV2Client ses = SesV2Client.builder()
             .region(Region.AP_SOUTH_1).build();
 
     private final SecretsManagerConfig config = SecretsManagerConfig.getInstance();
@@ -190,18 +180,7 @@ public class ExpiredReviewCleanupHandler
                     items.size(), rows, config.getFrontendUrl(),
                     FMT.format(Instant.now()));
 
-            ses.sendEmail(SendEmailRequest.builder()
-                    .fromEmailAddress(config.getSesSender())
-                    .destination(Destination.builder().toAddresses(config.getSesReviewer()).build())
-                    .content(EmailContent.builder()
-                            .simple(Message.builder()
-                                    .subject(Content.builder().data(subject).charset("UTF-8").build())
-                                    .body(Body.builder()
-                                            .text(Content.builder().data(body).charset("UTF-8").build())
-                                            .build())
-                                    .build())
-                            .build())
-                    .build());
+            BrevoMailer.send(config.getBrevoSender(), config.getSesReviewer(), subject, body);
 
             ctx.getLogger().log("Escalation email sent for " + items.size() + " invoice(s)");
         } catch (Exception e) {

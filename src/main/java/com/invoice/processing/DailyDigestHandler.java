@@ -16,13 +16,6 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
-import software.amazon.awssdk.services.sesv2.SesV2Client;
-import software.amazon.awssdk.services.sesv2.model.Body;
-import software.amazon.awssdk.services.sesv2.model.Content;
-import software.amazon.awssdk.services.sesv2.model.Destination;
-import software.amazon.awssdk.services.sesv2.model.EmailContent;
-import software.amazon.awssdk.services.sesv2.model.Message;
-import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
 
 /**
  * DailyDigestHandler – runs every morning at 08:00 IST (02:30 UTC) via EventBridge.
@@ -37,9 +30,6 @@ public class DailyDigestHandler
             ? System.getenv("DYNAMO_TABLE") : "invoices";
 
     private final DynamoDbClient dynamo = DynamoDbClient.builder()
-            .region(Region.AP_SOUTH_1).build();
-
-    private final SesV2Client ses = SesV2Client.builder()
             .region(Region.AP_SOUTH_1).build();
 
     private final SecretsManagerConfig config = SecretsManagerConfig.getInstance();
@@ -184,18 +174,7 @@ public class DailyDigestHandler
                 newIn, pendingDecision, DATE_FMT.format(now));
 
         try {
-            ses.sendEmail(SendEmailRequest.builder()
-                    .fromEmailAddress(config.getSesSender())
-                    .destination(Destination.builder().toAddresses(config.getSesReviewer()).build())
-                    .content(EmailContent.builder()
-                            .simple(Message.builder()
-                                    .subject(Content.builder().data(subject).charset("UTF-8").build())
-                                    .body(Body.builder()
-                                            .text(Content.builder().data(body).charset("UTF-8").build())
-                                            .build())
-                                    .build())
-                            .build())
-                    .build());
+            BrevoMailer.send(config.getBrevoSender(), config.getSesReviewer(), subject, body);
 
             context.getLogger().log("DailyDigest email sent — " + newIn + " new, " + pendingDecision + " pending");
         } catch (Exception e) {

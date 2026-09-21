@@ -28,13 +28,6 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.sesv2.SesV2Client;
-import software.amazon.awssdk.services.sesv2.model.Body;
-import software.amazon.awssdk.services.sesv2.model.Content;
-import software.amazon.awssdk.services.sesv2.model.Destination;
-import software.amazon.awssdk.services.sesv2.model.EmailContent;
-import software.amazon.awssdk.services.sesv2.model.Message;
-import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
 import software.amazon.awssdk.services.textract.TextractClient;
 import software.amazon.awssdk.services.textract.model.AnalyzeExpenseRequest;
 import software.amazon.awssdk.services.textract.model.AnalyzeExpenseResponse;
@@ -69,9 +62,6 @@ public class InvoiceExtractionHandler
             .region(Region.AP_SOUTH_1).build();
 
     private final DynamoDbClient dynamoDbClient = DynamoDbClient.builder()
-            .region(Region.AP_SOUTH_1).build();
-
-    private final SesV2Client sesClient = SesV2Client.builder()
             .region(Region.AP_SOUTH_1).build();
 
 
@@ -228,7 +218,7 @@ public class InvoiceExtractionHandler
                         + "' – original record kept");
             }
 
-            // 9. SES notification when review is required
+            // 9. Notification when review is required
             if ("REVIEW_REQUIRED".equals(validationStatus)) {
                 sendReviewEmail(invoiceId, totalConfidence, avgConfidence, comments, context);
             }
@@ -599,7 +589,7 @@ Return ONLY valid JSON – no markdown fences, no extra text.
                 : id;
     }
 
-    /** Send a review-required email via SES v2 with one-click approve/reject links. */
+    /** Send a review-required email via Brevo with one-click approve/reject links. */
     private void sendReviewEmail(String invoiceId, double totalConf,
                                  double avgConf, String comments, Context ctx) {
         try {
@@ -638,26 +628,13 @@ Return ONLY valid JSON – no markdown fences, no extra text.
                     invoiceId, totalConf, CONFIDENCE_THRESHOLD, avgConf, comments,
                     approveLink, rejectLink, reviewUrl);
 
-            sesClient.sendEmail(SendEmailRequest.builder()
-                    .fromEmailAddress(cfg.getSesSender())
-                    .destination(Destination.builder()
-                            .toAddresses(cfg.getSesReviewer())
-                            .build())
-                    .content(EmailContent.builder()
-                            .simple(Message.builder()
-                                    .subject(Content.builder().data(subject).charset("UTF-8").build())
-                                    .body(Body.builder()
-                                            .text(Content.builder().data(body).charset("UTF-8").build())
-                                            .build())
-                                    .build())
-                            .build())
-                    .build());
+            BrevoMailer.send(cfg.getBrevoSender(), cfg.getSesReviewer(), subject, body);
 
-            ctx.getLogger().log("SES review email with approval links sent for invoice "
+            ctx.getLogger().log("Brevo review email with approval links sent for invoice "
                     + invoiceId + " to " + cfg.getSesReviewer());
 
         } catch (Exception e) {
-            ctx.getLogger().log("WARNING: Failed to send SES email: " + e.getMessage());
+            ctx.getLogger().log("WARNING: Failed to send review email: " + e.getMessage());
         }
     }
 
