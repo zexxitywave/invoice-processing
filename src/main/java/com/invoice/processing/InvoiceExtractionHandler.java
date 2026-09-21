@@ -32,7 +32,9 @@ import software.amazon.awssdk.services.textract.TextractClient;
 import software.amazon.awssdk.services.textract.model.AnalyzeExpenseRequest;
 import software.amazon.awssdk.services.textract.model.AnalyzeExpenseResponse;
 import software.amazon.awssdk.services.textract.model.Document;
+import software.amazon.awssdk.services.textract.model.ProvisionedThroughputExceededException;
 import software.amazon.awssdk.services.textract.model.S3Object;
+import software.amazon.awssdk.services.textract.model.ThrottlingException;
 
 public class InvoiceExtractionHandler
         implements RequestHandler<Map<String, Object>, Map<String, Object>> {
@@ -94,17 +96,8 @@ public class InvoiceExtractionHandler
             }
             context.getLogger().log("Uploaded at (S3 lastModified): " + uploadedAt);
 
-            // 2. Textract – AnalyzeExpense
-            AnalyzeExpenseResponse textractResponse = textractClient.analyzeExpense(
-                    AnalyzeExpenseRequest.builder()
-                            .document(Document.builder()
-                                    .s3Object(S3Object.builder()
-                                            .bucket(bucketName)
-                                            .name(objectKey)
-                                            .build())
-                                    .build())
-                            .build()
-            );
+            // 2. Textract – AnalyzeExpense (with jittered backoff on rate limits)
+            AnalyzeExpenseResponse textractResponse = analyzeExpenseWithRetry(bucketName, objectKey, context);
 
             InvoiceData invoiceData = extractInvoiceData(textractResponse, context);
             context.getLogger().log("Extracted: " + invoiceData);
@@ -304,6 +297,57 @@ public class InvoiceExtractionHandler
         if (data.getTotalConfidence()     != null) scores.add(data.getTotalConfidence());
         if (scores.isEmpty()) return 0.0;
         return scores.stream().mapToDouble(Float::doubleValue).average().orElse(0.0);
+    }
+
+    /**
+     * Calls Textract AnalyzeExpense with jittered exponential-backoff retries.
+     *
+     * AnalyzeExpense rate-limits aggressively under parallel load (HTTP 400
+     * "Provisioned rate exceeded"). The SDK's built-in retry does not treat that
+     * as retryable, so invoices could be dropped. We retry transparently up to
+     * TEXTract_MAX_ATTEMPTS times before letting the exception propagate (where
+     * EventBridge async retries can still pick it up).
+     */
+    private static final int TEXTRACT_MAX_ATTEMPTS = 5;
+
+    private AnalyzeExpenseResponse analyzeExpenseWithRetry(String bucketName, String objectKey,
+                                                           Context ctx) throws Exception {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return textractClient.analyzeExpense(
+                        AnalyzeExpenseRequest.builder()
+                                .document(Document.builder()
+                                        .s3Object(S3Object.builder()
+                                                .bucket(bucketName)
+                                                .name(objectKey)
+                                                .build())
+                                        .build())
+                                .build()
+                );
+            } catch (Exception e) {
+                boolean transientFailure = e instanceof ThrottlingException
+                        || e instanceof ProvisionedThroughputExceededException
+                        || isRateLimitMessage(e);
+                if (!transientFailure || attempt >= TEXTRACT_MAX_ATTEMPTS) {
+                    throw e;
+                }
+                long backoff = (long) (500L * Math.pow(2, attempt - 1) * (0.7 + 0.6 * Math.random()));
+                ctx.getLogger().log("Textract attempt " + attempt + " throttled (" + e.getMessage()
+                        + ") – retrying in " + backoff + " ms");
+                try {
+                    Thread.sleep(backoff);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
+    }
+
+    private boolean isRateLimitMessage(Exception e) {
+        if (e.getMessage() == null) return false;
+        String m = e.getMessage().toLowerCase();
+        return m.contains("rate exceeded") || m.contains("throttl");
     }
 
     /**
