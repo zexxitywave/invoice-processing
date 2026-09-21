@@ -4,9 +4,31 @@ import {
   getUploadURL,
   uploadFileToS3,
   validatePDF,
+  MAX_CONCURRENT_UPLOADS,
 } from "../services/uploadService";
 
 let nextId = 0;
+
+/**
+ * Run `worker` over every item with at most `limit` tasks in flight.
+ * Keeps parallel uploads inside the Lambda concurrency budget.
+ */
+async function runWithConcurrency(items, limit, worker) {
+  const queue = [...items];
+
+  const workers = Array.from(
+    { length: Math.min(limit, queue.length) },
+    () =>
+      (async () => {
+        while (queue.length) {
+          const item = queue.shift();
+          await worker(item);
+        }
+      })()
+  );
+
+  await Promise.all(workers);
+}
 
 export default function useUpload() {
   const [files, setFiles] = useState([]);
@@ -222,8 +244,14 @@ export default function useUpload() {
       return;
     }
 
-    const uploadResults = await Promise.all(
-      pendingFiles.map(uploadOne)
+    const uploadResults = [];
+
+    await runWithConcurrency(
+      pendingFiles,
+      MAX_CONCURRENT_UPLOADS,
+      async (entry) => {
+        uploadResults.push(await uploadOne(entry));
+      }
     );
 
     const successCount = uploadResults.filter(Boolean).length;

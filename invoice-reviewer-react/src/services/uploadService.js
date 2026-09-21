@@ -11,7 +11,67 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const REQUEST_TIMEOUT = 30000;
 
+// How many PDFs are 1) pushed to AWS and 2) signed at the same time.
+// Kept low so parallel uploads stay under the account Lambda
+// concurrency quota instead of getting throttled.
+export const MAX_CONCURRENT_UPLOADS = 3;
+
+// Retries are applied to transient failures only.
+const RETRYABLE_STATUS_CODES = [429, 500, 502, 503, 504];
+
+const RETRYABLE_ERROR_PATTERN =
+  /network|timed out|timeout|unavailable|failed to fetch/i;
+
 export const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+/**
+ * ============================================================================
+ * Retry Helpers
+ * ============================================================================
+ */
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function isRetryableError(error) {
+  if (!error) return false;
+
+  if (RETRYABLE_STATUS_CODES.includes(error.status)) {
+    return true;
+  }
+
+  if (error.name === "AbortError") {
+    return true;
+  }
+
+  return RETRYABLE_ERROR_PATTERN.test(error.message || "");
+}
+
+/**
+ * Run `operation` and retry on transient failures with exponential
+ * backoff. Permanent errors (validation, 4xx other than 429) fail fast.
+ */
+export async function withRetry(
+  operation,
+  { retries = 3, baseDelay = 500 } = {}
+) {
+  let attempt = 0;
+
+  for (;;) {
+    try {
+      return await operation();
+    } catch (error) {
+      attempt += 1;
+
+      if (attempt > retries || !isRetryableError(error)) {
+        throw error;
+      }
+
+      await sleep(baseDelay * 2 ** (attempt - 1));
+    }
+  }
+}
 
 export const ALLOWED_FILE_TYPES = [
   "application/pdf",
@@ -56,11 +116,15 @@ export async function request(endpoint, options = {}) {
     }
 
     if (!response.ok) {
-      throw new Error(
+      const error = new Error(
         data.error ||
           data.message ||
           `HTTP ${response.status}`
       );
+
+      error.status = response.status;
+
+      throw error;
     }
 
     return data;
@@ -120,17 +184,19 @@ export async function getUploadURL(fileName) {
     throw new Error("Filename is required.");
   }
 
-  const data = await request(
-    "/invoices/upload-url",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        fileName,
-      }),
-    }
+  const data = await withRetry(() =>
+    request(
+      "/invoices/upload-url",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fileName,
+        }),
+      }
+    )
   );
 
   if (!data.uploadUrl) {
@@ -164,6 +230,20 @@ export function uploadFileToS3(
     throw new Error("Invalid upload URL.");
   }
 
+  return withRetry(() =>
+    uploadOnceToS3(uploadUrl, file, onProgress)
+  );
+}
+
+/**
+ * Single PUT attempt via XHR. Retried by uploadFileToS3 on
+ * transient network / 5xx failures.
+ */
+function uploadOnceToS3(
+  uploadUrl,
+  file,
+  onProgress = () => {}
+) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
 
@@ -187,11 +267,13 @@ export function uploadFileToS3(
       ) {
         resolve();
       } else {
-        reject(
-          new Error(
-            `S3 upload failed (${xhr.status})`
-          )
+        const error = new Error(
+          `S3 upload failed (${xhr.status})`
         );
+
+        error.status = xhr.status;
+
+        reject(error);
       }
     });
 
