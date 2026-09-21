@@ -49,6 +49,10 @@ public class InvoiceExtractionHandler
             ? System.getenv("DYNAMO_TABLE") : "invoices";
     private static final double CONFIDENCE_THRESHOLD = 95.0;
 
+    // Allowed rounding difference between the sum of line items and the invoice total
+    // before the invoice is treated as inconsistent and routed to human review.
+    private static final double MATH_TOLERANCE = 0.5;
+
     // Loaded once from Secrets Manager (with env-var fallback)
     private final SecretsManagerConfig config = SecretsManagerConfig.getInstance();
 
@@ -132,38 +136,52 @@ public class InvoiceExtractionHandler
             String risk             = bedrockResult.risk;
             String validationStatus = bedrockResult.validationStatus;
             String comments         = bedrockResult.comments;
-            List<String> missingFields = bedrockResult.missingFields;
+            // 5. Deterministic, rules-based validation.
+            //    An invoice is auto-approved ONLY when it is complete, internally
+            //    consistent, read with high confidence AND Bedrock agrees. Missing ANY
+            //    field (including subtotal) or line items that do not add up to the
+            //    total forces human review.
+            List<String> missingFields = computeMissingFields(invoiceData, bedrockResult.missingFields);
 
-            // 5. Override validationStatus based on TOTAL field confidence
-            //    Rule: if Textract is less than 95% sure about the invoice total → human review
-            if (totalConfidence < CONFIDENCE_THRESHOLD) {
-                context.getLogger().log(
-                        "TOTAL confidence " + totalConfidence + " < " + CONFIDENCE_THRESHOLD
-                                + " → REVIEW_REQUIRED");
+            Double totalValue   = parseMoney(invoiceData.getTotal());
+            Double lineItemsSum = invoiceData.getLineItemsSum();
+            boolean mathMismatch = lineItemsSum != null && totalValue != null
+                    && Math.abs(lineItemsSum - totalValue) > MATH_TOLERANCE;
+
+            boolean lowConfidence = totalConfidence < CONFIDENCE_THRESHOLD;
+            boolean bedrockReview = "REVIEW_REQUIRED".equals(bedrockResult.validationStatus);
+
+            if (lowConfidence || !missingFields.isEmpty() || mathMismatch || bedrockReview) {
                 validationStatus = "REVIEW_REQUIRED";
-                if (comments == null || comments.isBlank()) {
-                    comments = "Low confidence on TOTAL field: "
-                            + String.format("%.1f", totalConfidence) + "%";
+
+                List<String> reasons = new ArrayList<>();
+                if (lowConfidence) {
+                    reasons.add("low TOTAL confidence: "
+                            + String.format("%.1f", totalConfidence) + "%");
+                }
+                if (!missingFields.isEmpty()) {
+                    reasons.add("missing fields: " + String.join(", ", missingFields));
+                }
+                if (mathMismatch) {
+                    reasons.add("line items sum (" + lineItemsSum
+                            + ") != total (" + totalValue + ")");
+                }
+
+                if (bedrockReview) {
+                    if (comments != null && !comments.isBlank()) {
+                        reasons.add("AI flagged: " + comments);
+                    }
+                    comments = String.join(" | ", reasons);
                 } else {
-                    comments += " | Low TOTAL confidence: "
-                            + String.format("%.1f", totalConfidence) + "%";
+                    String reasonText = String.join(" | ", reasons);
+                    comments = (comments == null || comments.isBlank())
+                            ? reasonText : comments + " | " + reasonText;
                 }
+
+                context.getLogger().log("REVIEW_REQUIRED → " + comments);
             } else {
-                context.getLogger().log(
-                        "TOTAL confidence " + totalConfidence + " >= " + CONFIDENCE_THRESHOLD
-                                + " → APPROVED");
-                // Confidence is above threshold — only keep REVIEW_REQUIRED if Bedrock
-                // flagged a truly critical missing field (invoiceId, total, vendorName).
-                // Missing subtotal alone is not enough to trigger human review.
-                boolean criticalFieldMissing = missingFields != null && missingFields.stream()
-                        .anyMatch(f -> f.equalsIgnoreCase("total")
-                                    || f.equalsIgnoreCase("invoiceId")
-                                    || f.equalsIgnoreCase("vendorName"));
-                if ("REVIEW_REQUIRED".equals(validationStatus) && !criticalFieldMissing) {
-                    validationStatus = "APPROVED";
-                    context.getLogger().log("Overriding Bedrock REVIEW_REQUIRED → APPROVED "
-                            + "(non-critical missing fields: " + missingFields + ")");
-                }
+                validationStatus = "APPROVED";
+                context.getLogger().log("APPROVED – complete, consistent, confident, AI agreed.");
             }
 
             // 6. Duplicate detection – must happen after Bedrock so we still know the duplicate
@@ -237,23 +255,50 @@ public class InvoiceExtractionHandler
     /** Pull key fields from Textract AnalyzeExpense response. */
     private InvoiceData extractInvoiceData(AnalyzeExpenseResponse response, Context ctx) {
         InvoiceData data = new InvoiceData();
-        response.expenseDocuments().forEach(doc ->
-                doc.summaryFields().forEach(field -> {
-                    String type  = field.type()           != null ? field.type().text()                    : "";
-                    String value = field.valueDetection() != null ? field.valueDetection().text()          : "";
-                    float  conf  = field.valueDetection() != null ? field.valueDetection().confidence()    : 0f;
 
-                    ctx.getLogger().log("FIELD: " + type + " = " + value + " (" + conf + "%)");
+        for (var doc : response.expenseDocuments()) {
+            for (var field : doc.summaryFields()) {
+                String type  = field.type()           != null ? field.type().text()                 : "";
+                String value = field.valueDetection() != null ? field.valueDetection().text()       : "";
+                float  conf  = field.valueDetection() != null ? field.valueDetection().confidence() : 0f;
 
-                    switch (type) {
-                        case "VENDOR_NAME"           -> { data.setVendorName(value);   data.setVendorConfidence(conf); }
-                        case "INVOICE_RECEIPT_DATE"  -> { data.setInvoiceDate(value);  data.setDateConfidence(conf);   }
-                        case "INVOICE_RECEIPT_ID"    -> { data.setInvoiceId(value);    data.setInvoiceIdConfidence(conf); }
-                        case "SUBTOTAL"              ->   data.setSubtotal(value);
-                        case "TOTAL"                 -> { data.setTotal(value);         data.setTotalConfidence(conf);  }
+                ctx.getLogger().log("FIELD: " + type + " = " + value + " (" + conf + "%)");
+
+                switch (type) {
+                    case "VENDOR_NAME"           -> { data.setVendorName(value);   data.setVendorConfidence(conf); }
+                    case "INVOICE_RECEIPT_DATE"  -> { data.setInvoiceDate(value);  data.setDateConfidence(conf);   }
+                    case "INVOICE_RECEIPT_ID"    -> { data.setInvoiceId(value);    data.setInvoiceIdConfidence(conf); }
+                    case "SUBTOTAL"              ->   data.setSubtotal(value);
+                    case "TOTAL"                 -> { data.setTotal(value);         data.setTotalConfidence(conf);  }
+                }
+            }
+
+            // Aggregate line-item amounts so the invoice total can be cross-checked.
+            double lineSum   = 0;
+            int    lineCount = 0;
+            for (var group : doc.lineItemGroups()) {
+                for (var item : group.lineItems()) {
+                    Double price     = null;
+                    Double unitPrice = null;
+                    for (var f : item.lineItemExpenseFields()) {
+                        String type = f.type()           != null ? f.type().text()           : "";
+                        String val  = f.valueDetection() != null ? f.valueDetection().text() : "";
+                        if ("PRICE".equals(type))           price     = parseMoney(val);
+                        else if ("UNIT_PRICE".equals(type)) unitPrice = parseMoney(val);
                     }
-                })
-        );
+                    Double amount = price != null ? price : unitPrice;
+                    if (amount != null) {
+                        lineSum += amount;
+                        lineCount++;
+                    }
+                }
+            }
+            if (lineCount > 0) {
+                data.setLineItemsSum(lineSum);
+                data.setLineItemCount(lineCount);
+                ctx.getLogger().log("LINE ITEMS: count=" + lineCount + "  sum=" + lineSum);
+            }
+        }
         return data;
     }
 
@@ -269,6 +314,50 @@ public class InvoiceExtractionHandler
         if (data.getTotalConfidence()     != null) scores.add(data.getTotalConfidence());
         if (scores.isEmpty()) return 0.0;
         return scores.stream().mapToDouble(Float::doubleValue).average().orElse(0.0);
+    }
+
+    /**
+     * Build the list of fields that could not be read off the invoice. This is
+     * computed from the extracted values themselves (not just Bedrock's opinion) so
+     * a field is never silently treated as present. Missing ANY field forces review.
+     */
+    private List<String> computeMissingFields(InvoiceData data, List<String> bedrockMissing) {
+        List<String> missing = new ArrayList<>();
+        if (isBlank(data.getVendorName()))  missing.add("vendorName");
+        if (isBlank(data.getInvoiceDate())) missing.add("invoiceDate");
+        if (isBlank(data.getInvoiceId()))   missing.add("invoiceId");
+        if (isBlank(data.getSubtotal()))    missing.add("subtotal");
+        if (isBlank(data.getTotal()))       missing.add("total");
+
+        // Fold in any recognised fields Bedrock also flagged (deduplicated).
+        if (bedrockMissing != null) {
+            for (String f : bedrockMissing) {
+                if (f == null) continue;
+                String t = f.trim();
+                if (t.equalsIgnoreCase("vendorName")  && !missing.contains("vendorName"))  missing.add("vendorName");
+                else if (t.equalsIgnoreCase("invoiceDate") && !missing.contains("invoiceDate")) missing.add("invoiceDate");
+                else if (t.equalsIgnoreCase("invoiceId")   && !missing.contains("invoiceId"))   missing.add("invoiceId");
+                else if (t.equalsIgnoreCase("subtotal")    && !missing.contains("subtotal"))    missing.add("subtotal");
+                else if (t.equalsIgnoreCase("total")       && !missing.contains("total"))       missing.add("total");
+            }
+        }
+        return missing;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    /** Parse an amount such as "$1,234.56" or "5 999" into a Double. */
+    private Double parseMoney(String raw) {
+        if (raw == null) return null;
+        String cleaned = raw.replaceAll("[^0-9.\\-]", "");
+        if (cleaned.isBlank() || cleaned.equals("-") || cleaned.equals(".")) return null;
+        try {
+            return Double.parseDouble(cleaned);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /** Call Bedrock Nova-Lite and parse the structured JSON response. */
@@ -492,6 +581,8 @@ Return ONLY valid JSON – no markdown fences, no extra text.
         item.put("comments",          s(comments != null ? comments : ""));
         item.put("missingFields",     s(missingFields != null ? String.join(", ", missingFields) : ""));
         item.put("avgConfidence",     n(avgConfidence));
+        item.put("lineItemsSum",      n(data.getLineItemsSum()));
+        item.put("lineItemCount",     n(data.getLineItemCount()));
         item.put("vendorConfidence",  n(data.getVendorConfidence()));
         item.put("totalConfidence",   n(data.getTotalConfidence()));
         item.put("invoiceIdConfidence", n(data.getInvoiceIdConfidence()));

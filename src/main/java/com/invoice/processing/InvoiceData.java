@@ -11,6 +11,12 @@ public class InvoiceData {
     private Float totalConfidence;
     private Float invoiceIdConfidence;
     private Float dateConfidence;
+
+    // Sum of the individual line-item amounts (Textract PRICE/UNIT_PRICE fields).
+    // Null when no line items were detected – the line-item math check is then skipped.
+    private Double lineItemsSum;
+    private int lineItemCount;
+
     public InvoiceData() {
     }
 
@@ -98,6 +104,22 @@ public class InvoiceData {
         this.dateConfidence = dateConfidence;
     }
 
+    public Double getLineItemsSum() {
+        return lineItemsSum;
+    }
+
+    public void setLineItemsSum(Double lineItemsSum) {
+        this.lineItemsSum = lineItemsSum;
+    }
+
+    public int getLineItemCount() {
+        return lineItemCount;
+    }
+
+    public void setLineItemCount(int lineItemCount) {
+        this.lineItemCount = lineItemCount;
+    }
+
     @Override
     public String toString() {
         return "InvoiceData{" +
@@ -110,6 +132,8 @@ public class InvoiceData {
                 ", totalConfidence=" + totalConfidence +
                 ", invoiceIdConfidence=" + invoiceIdConfidence +
                 ", dateConfidence=" + dateConfidence +
+                ", lineItemsSum=" + lineItemsSum +
+                ", lineItemCount=" + lineItemCount +
                 '}';
     }
 }

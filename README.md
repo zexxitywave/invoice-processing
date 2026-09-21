@@ -141,24 +141,26 @@ and `reviewDecision-index` GSIs.
 
 ```
 totalConfidence = Textract confidence on the TOTAL field (0–100%)
+missingFields   = computed from the extracted values themselves (vendorName,
+                  invoiceDate, invoiceId, subtotal, total) merged with Bedrock
+lineItemsSum    = sum of all line-item PRICE/UNIT_PRICE amounts
 
-if totalConfidence < 95%:
+An invoice is AUTO-APPROVED only when ALL of these hold:
+    • totalConfidence >= 95%
+    • no field is missing  (missingFields is empty – incl. subtotal)
+    • line items add up to the total  (|lineItemsSum − total| <= 0.5)
+    • Bedrock says APPROVED
+
+Otherwise:
     validationStatus = REVIEW_REQUIRED
     SES email sent with one-click approve/reject links (72h token)
-
-else:
-    Bedrock Nova-Lite validation runs
-    if a critical field is missing (invoiceId / total / vendorName):
-        validationStatus = REVIEW_REQUIRED
-    else:
-        validationStatus = APPROVED
 
 Duplicate detection:
     if invoiceId already exists → DUPLICATE (risk = HIGH)
 ```
 
 Each extracted field carries a confidence score; average confidence is recorded
-alongside the risk level and the Bedrock explanation for transparency.
+alongside the risk level and the review reason for transparency.
 
 ---
 
@@ -182,12 +184,14 @@ alongside the risk level and the Bedrock explanation for transparency.
 | `invoiceDate` | S | Extracted by Textract |
 | `total` | S | Extracted by Textract |
 | `subtotal` | S | Extracted by Textract (may be null) |
+| `lineItemsSum` | N | Sum of line-item amounts (drives the math check) |
+| `lineItemCount` | N | Number of line items detected |
 | `totalConfidence` | N | Confidence on TOTAL field — drives routing |
 | `avgConfidence` | N | Mean of all field confidence scores |
 | `risk` | S | Bedrock — `LOW` / `MEDIUM` / `HIGH` |
 | `validationStatus` | S | `APPROVED` / `REVIEW_REQUIRED` / `DUPLICATE` |
 | `comments` | S | Bedrock explanation |
-| `missingFields` | S | Comma-separated missing fields (Bedrock) |
+| `missingFields` | S | Comma-separated missing fields (computed from extraction + Bedrock) |
 | `reviewDecision` | S | Human decision — `APPROVED` / `REJECTED` / `ESCALATED` |
 | `reviewedBy` | S | Reviewer email or `email-link` |
 | `reviewedAt` | S | ISO 8601 timestamp |
