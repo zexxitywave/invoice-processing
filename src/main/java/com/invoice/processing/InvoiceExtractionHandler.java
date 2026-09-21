@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
@@ -165,7 +166,8 @@ public class InvoiceExtractionHandler
                 }
             }
 
-            // 6. Duplicate detection – must happen after Bedrock so we still store the record
+            // 6. Duplicate detection – must happen after Bedrock so we still know the duplicate
+            boolean isDuplicate = false;
             if (invoiceData.getInvoiceId() != null && !invoiceData.getInvoiceId().isBlank()) {
                 Map<String, AttributeValue> key = new HashMap<>();
                 key.put("invoiceId", AttributeValue.builder()
@@ -175,31 +177,38 @@ public class InvoiceExtractionHandler
                         GetItemRequest.builder().tableName(DYNAMO_TABLE).key(key).build());
 
                 if (existing.hasItem()) {
-                    risk             = "HIGH";
+                    isDuplicate    = true;
+                    risk           = "HIGH";
                     validationStatus = "DUPLICATE";
-                    comments         = "Duplicate invoice – already exists in the system.";
+                    comments       = "Duplicate invoice – already exists in the system.";
                     context.getLogger().log("DUPLICATE INVOICE DETECTED: " + invoiceData.getInvoiceId());
                 }
             }
 
-            // 7. Save to DynamoDB
+            // 7. Save to DynamoDB – skip when the invoiceId already exists so we never
+            //    overwrite the original record (preserves the audit trail of the first decision)
             String invoiceId = resolveInvoiceId(invoiceData);
-            Map<String, AttributeValue> item = buildDynamoItem(
-                    invoiceId, invoiceData, risk, validationStatus,
-                    comments, missingFields, avgConfidence, uploadedAt);
+            if (!isDuplicate) {
+                Map<String, AttributeValue> item = buildDynamoItem(
+                        invoiceId, invoiceData, risk, validationStatus,
+                        comments, missingFields, avgConfidence, uploadedAt);
 
-            dynamoDbClient.putItem(PutItemRequest.builder()
-                    .tableName(DYNAMO_TABLE).item(item).build());
-            context.getLogger().log("Invoice saved to DynamoDB. ID=" + invoiceId
-                    + "  status=" + validationStatus + "  risk=" + risk);
+                dynamoDbClient.putItem(PutItemRequest.builder()
+                        .tableName(DYNAMO_TABLE).item(item).build());
+                context.getLogger().log("Invoice saved to DynamoDB. ID=" + invoiceId
+                        + "  status=" + validationStatus + "  risk=" + risk);
 
-            // 8. Upload audit JSON to S3
-            String auditKey = "audit/invoice-" + invoiceId.replace("#", "").trim() + ".json";
-            s3Client.putObject(
-                    PutObjectRequest.builder()
-                            .bucket(bucketName).key(auditKey).contentType("application/json").build(),
-                    RequestBody.fromString(invoiceJson));
-            context.getLogger().log("Audit JSON uploaded to: " + auditKey);
+                // 8. Upload audit JSON to S3
+                String auditKey = "audit/invoice-" + invoiceId.replace("#", "").trim() + ".json";
+                s3Client.putObject(
+                        PutObjectRequest.builder()
+                                .bucket(bucketName).key(auditKey).contentType("application/json").build(),
+                        RequestBody.fromString(invoiceJson));
+                context.getLogger().log("Audit JSON uploaded to: " + auditKey);
+            } else {
+                context.getLogger().log("Skipped persist of duplicate '" + invoiceId
+                        + "' – original record kept");
+            }
 
             // 9. SES notification when review is required
             if ("REVIEW_REQUIRED".equals(validationStatus)) {
@@ -495,7 +504,7 @@ Return ONLY valid JSON – no markdown fences, no extra text.
     private String resolveInvoiceId(InvoiceData data) {
         String id = data.getInvoiceId();
         return (id == null || id.isBlank())
-                ? String.valueOf(System.currentTimeMillis())
+                ? "UNKNOWN-" + System.currentTimeMillis() + "-" + ThreadLocalRandom.current().nextInt(1000, 9999)
                 : id;
     }
 
