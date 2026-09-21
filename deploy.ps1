@@ -25,7 +25,7 @@ $S3_DEPLOY_BUCKET= "invoice-processing-deploy-$AWS_ACCOUNT_ID"   # SAM staging b
 $UI_BUCKET       = "invoice-reviewer-ui-$AWS_ACCOUNT_ID"         # Static website bucket
 $SES_SENDER      = "noreply@zexxity.online"                       # Your verified SES sender
 $SES_REVIEWER    = "invydexter@gmail.com"                         # Reviewer email
-$MODEL_ID        = "apac.amazon.nova-lite-v1:0"
+$MODEL_ID        = "global.amazon.nova-2-lite-v1:0"
 # ─────────────────────────────────────────────────────────────────────────────
 
 Set-StrictMode -Version Latest

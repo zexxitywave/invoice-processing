@@ -2,7 +2,6 @@ package com.invoice.processing;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
 import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
@@ -16,7 +15,7 @@ import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRespon
  * {
  *   "sesSender"   : "noreply@zexxity.online",
  *   "sesReviewer" : "invydexter@gmail.com",
- *   "modelId"     : "apac.amazon.nova-lite-v1:0",
+ *   "modelId"     : "global.amazon.nova-2-lite-v1:0",
  *   "frontendUrl" : "https://www.zexxity.online"
  * }
  *
@@ -30,7 +29,7 @@ public class SecretsManagerConfig {
     // ── Real defaults – used when Secrets Manager AND env-vars are both absent ─
     private static final String DEFAULT_SENDER      = "noreply@zexxity.online";
     private static final String DEFAULT_REVIEWER    = "invydexter@gmail.com";
-    private static final String DEFAULT_MODEL_ID    = "apac.amazon.nova-lite-v1:0";
+    private static final String DEFAULT_MODEL_ID    = "global.amazon.nova-2-lite-v1:0";
     private static final String DEFAULT_FRONTEND_URL = "https://zexxity.online";
 
     // ── Cached values ──────────────────────────────────────────────────────────
