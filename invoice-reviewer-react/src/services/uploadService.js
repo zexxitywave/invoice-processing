@@ -11,10 +11,10 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const REQUEST_TIMEOUT = 30000;
 
-// How many PDFs are 1) pushed to AWS and 2) signed at the same time.
-// Kept low so parallel uploads stay under the account Lambda
-// concurrency quota instead of getting throttled.
-export const MAX_CONCURRENT_UPLOADS = 3;
+// How many PDFs are pushed to AWS at the same time. Kept very low so
+// parallel uploads stay well under the account Lambda concurrency
+// quota (10) instead of getting throttled.
+export const MAX_CONCURRENT_UPLOADS = 2;
 
 // Retries are applied to transient failures only.
 const RETRYABLE_STATUS_CODES = [429, 500, 502, 503, 504];
@@ -49,12 +49,13 @@ export function isRetryableError(error) {
 }
 
 /**
- * Run `operation` and retry on transient failures with exponential
- * backoff. Permanent errors (validation, 4xx other than 429) fail fast.
+ * Run `operation` and retry on transient failures with jittered
+ * exponential backoff so many clients never retry in lockstep.
+ * Permanent errors (validation, 4xx other than 429) fail fast.
  */
 export async function withRetry(
   operation,
-  { retries = 3, baseDelay = 500 } = {}
+  { retries = 5, baseDelay = 1000 } = {}
 ) {
   let attempt = 0;
 
@@ -68,7 +69,10 @@ export async function withRetry(
         throw error;
       }
 
-      await sleep(baseDelay * 2 ** (attempt - 1));
+      // Full jitter: random between 0 and base * 2^(attempt-1)
+      const window = baseDelay * 2 ** (attempt - 1);
+
+      await sleep(Math.floor(Math.random() * window));
     }
   }
 }
