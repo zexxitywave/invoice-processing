@@ -188,22 +188,30 @@ public class InvoiceExtractionHandler
                     .filter(f -> !"vendorName".equalsIgnoreCase(f))
                     .toList();
 
-            // Our deterministic check is authoritative for tie-out arithmetic. If
-            // the model claims a math failure but every required field is present,
-            // confidence is high and our own math passes, trust the numbers (the
-            // model frequently hallucinates amounts) and auto-approve.
-            boolean aiMathOnlyDisagreement = Boolean.FALSE.equals(bedrockResult.mathConsistent)
-                    && !mathMismatch
+            // Deterministic tie-out verification is authoritative. Missing discount
+            // or tax lines (an OCR absence) are treated as zero in the check, so a
+            // model that asks for review over "missing tax/discount" or claims a
+            // mismatch must NOT override arithmetic that verifies exactly. Review is
+            // reserved for invoices where the precise check itself fails: the math
+            // does not tie out, a required field is missing, or confidence is low.
+            boolean deterministicPass = !mathMismatch
                     && reviewBlocking.isEmpty()
                     && !lowConfidence;
 
-            if (aiMathOnlyDisagreement) {
+            if (deterministicPass) {
                 validationStatus = "APPROVED";
                 risk            = "LOW";
-                comments        = "Math verifies deterministically (subtotal - discount + shipping + tax = total);"
-                        + " AI tie-out concern overridden by precise check.";
-                context.getLogger().log("APPROVED - deterministic math verified; AI math claim overridden.");
-            } else if (lowConfidence || !reviewBlocking.isEmpty() || mathMismatch || bedrockReview) {
+                if (bedrockReview) {
+                    String advisory = (bedrockResult.comments != null && !bedrockResult.comments.isBlank())
+                            ? bedrockResult.comments
+                            : bedrockResult.validationStatus;
+                    comments = "Math verifies deterministically (subtotal - discount + shipping + tax = total);"
+                            + " AI advisory (" + advisory + ") overridden by precise check.";
+                    context.getLogger().log("APPROVED - deterministic math verified; AI advisory overridden (" + advisory + ")");
+                } else {
+                    context.getLogger().log("APPROVED - complete, consistent, confident.");
+                }
+            } else {
                 validationStatus = "REVIEW_REQUIRED";
 
                 List<String> reasons = new ArrayList<>();
@@ -230,9 +238,6 @@ public class InvoiceExtractionHandler
                 }
 
                 context.getLogger().log("REVIEW_REQUIRED → " + comments);
-            } else {
-                validationStatus = "APPROVED";
-                context.getLogger().log("APPROVED – complete, consistent, confident, AI agreed.");
             }
 
             // A model that stayed silent or returned UNKNOWN must never leave a
