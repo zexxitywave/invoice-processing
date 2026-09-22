@@ -277,6 +277,11 @@ public class InvoiceExtractionHandler
         InvoiceData data = new InvoiceData();
 
         for (var doc : response.expenseDocuments()) {
+            // Textract can report SUBTOTAL multiple times (the amount column, the
+            // unit rate, …) with no ordering guarantee. Collect candidates and pick
+            // the one matching the line-item sum after aggregation.
+            List<String> subtotalCandidates = new ArrayList<>();
+
             for (var field : doc.summaryFields()) {
                 String type  = field.type()           != null ? field.type().text()                 : "";
                 String value = field.valueDetection() != null ? field.valueDetection().text()       : "";
@@ -288,8 +293,9 @@ public class InvoiceExtractionHandler
                     case "VENDOR_NAME"           -> { data.setVendorName(value);   data.setVendorConfidence(conf); }
                     case "INVOICE_RECEIPT_DATE"  -> { data.setInvoiceDate(value);  data.setDateConfidence(conf);   }
                     case "INVOICE_RECEIPT_ID"    -> { data.setInvoiceId(value);    data.setInvoiceIdConfidence(conf); }
-                    case "SUBTOTAL"              ->   data.setSubtotal(value);
+                    case "SUBTOTAL"              ->   subtotalCandidates.add(value);
                     case "SHIPPING"              ->   data.setShipping(value);
+                    case "SHIPPING_HANDLING_CHARGE" -> data.setShipping(value);
                     case "TAX"                   ->   data.setTax(value);
                     case "DISCOUNT"              ->   data.setDiscount(value);
                     case "TOTAL"                 -> { data.setTotal(value);         data.setTotalConfidence(conf);  }
@@ -320,6 +326,25 @@ public class InvoiceExtractionHandler
                 data.setLineItemsSum(lineSum);
                 data.setLineItemCount(lineCount);
                 ctx.getLogger().log("LINE ITEMS: count=" + lineCount + "  sum=" + lineSum);
+            }
+
+            // Choose the SUBTOTAL candidate that matches the line-item sum (best
+            // signal for the true subtotal); otherwise keep the last occurrence,
+            // matching Textract's typical ordering.
+            if (!subtotalCandidates.isEmpty()) {
+                Double lineSumFlag = data.getLineItemsSum();
+                String chosen = subtotalCandidates.get(subtotalCandidates.size() - 1);
+                if (lineSumFlag != null) {
+                    for (String candidate : subtotalCandidates) {
+                        Double v = parseMoney(candidate);
+                        if (v != null && Math.abs(v - lineSumFlag) < 1e-2) {
+                            chosen = candidate;
+                            break;
+                        }
+                    }
+                }
+                data.setSubtotal(chosen);
+                ctx.getLogger().log("SUBTOTAL chosen: " + chosen);
             }
         }
         return data;
