@@ -1,0 +1,35 @@
+# Proprietary Software License
+
+Copyright (c) 2026 zexxitywave. All rights reserved.
+
+This software and associated documentation files (the "Software") are the
+proprietary property of the copyright holder.
+
+## Grant of Rights
+
+The Software is made available for **viewing purposes only**. You may read,
+fork, or clone this repository to study its implementation.
+
+## Restrictions
+
+Without the prior written consent of the copyright holder, you may **not**:
+
+- Use the Software to operate a production service;
+- Sell, lease, license, or sublicense the Software, in whole or in part;
+- Redistribute the Software, modified or unmodified;
+- Incorporate the Software, in whole or in part, into another product or
+  service for commercial or public use.
+
+## Warranty Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+For reuse or licensing inquiries, contact the repository owner.

@@ -10,6 +10,10 @@ target/
 .DS_Store
 Thumbs.db
 
+# Presentation / Office transient files
+*.pptx
+~$*
+
 # Auto-generated Maven files
 dependency-reduced-pom.xml
 

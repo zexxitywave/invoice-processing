@@ -1,12 +1,40 @@
+<div align="center">
+
 # Invoice Processing System
 
-> Event-driven, serverless invoice automation with AI-powered extraction and human-in-the-loop review.
+**Serverless, AI-powered invoice automation with human-in-the-loop review.**
 
-**Version:** 2.0
-**Live URL:** https://zexxity.online
-**Default Region:** `ap-south-1` (Mumbai) — single-region deployment
-**Runtime:** Java 21 · AWS Lambda
-**Frontend:** React 19 + Vite · AWS Amplify
+[![CI](https://github.com/zexxitywave/invoice-processing/actions/workflows/maven.yml/badge.svg)](https://github.com/zexxitywave/invoice-processing/actions/workflows/maven.yml)
+[![Java](https://img.shields.io/badge/Java-21-orange)](https://www.java.com)
+[![Runtime](https://img.shields.io/badge/Runtime-AWS%20Lambda-FF9900)](https://aws.amazon.com/lambda/)
+[![Frontend](https://img.shields.io/badge/Frontend-React%2019-blue)](https://react.dev)
+[![Build](https://img.shields.io/badge/Build-Maven-C71A36)](https://maven.apache.org)
+[![License](https://img.shields.io/badge/License-Proprietary-red)](LICENSE)
+
+[Live App](https://zexxity.online) · [Architecture](#architecture) · [API Reference](#api-endpoints) · [Deployment](#local-build--deploy)
+
+</div>
+
+---
+
+## Overview
+
+Vendors email PDF invoices to `invoices@zexxity.online` — or staff upload them through
+the web app. Each invoice is extracted with **AWS Textract**, validated and risk-scored
+by **Amazon Bedrock (Nova-Lite)**, and stored in **Amazon DynamoDB**. Cleanly extracted
+invoices are **auto-approved**; anything uncertain, incomplete, or duplicated is routed
+to a human reviewer through a dashboard or a one-click email link. Every decision is
+recorded for full auditability.
+
+### Highlights
+
+- **Fully serverless** — Java 21 + AWS Lambda, single region (`ap-south-1`, Mumbai)
+- **AI extraction** — Textract `AnalyzeExpense` with per-field confidence scores
+- **Deterministic validation** — auto-approve only when every field is present, math
+  checks out, confidence is high, *and* Bedrock agrees
+- **Human-in-the-loop** — intuitive review dashboard + one-click email approve/reject (72 h tokens)
+- **Audit-ready** — full history, filters, and CSV export
+- **Notifications via Brevo** — review, confirmation, daily digest, and escalation emails
 
 ---
 
@@ -20,27 +48,15 @@
 - [Extraction & Routing Logic](#extraction--routing-logic)
 - [DynamoDB Schema](#dynamodb-schema)
 - [Email Approval Flow](#email-approval-flow)
-- [Inbound Email (SES)](#inbound-email-ses)
+- [Inbound Email](#inbound-email)
 - [Scheduled Jobs](#scheduled-jobs)
 - [Frontend](#frontend)
-- [Project Structure](#project-structure)
+- [Repository Layout](#repository-layout)
 - [Local Build & Deploy](#local-build--deploy)
 - [CI/CD](#cicd)
 - [Load Testing](#load-testing)
-
----
-
-## Overview
-
-The system automates invoice intake end-to-end. Vendors email PDF invoices to
-`invoices@zexxity.online` (or staff upload them through the web UI). Each invoice
-is extracted with **AWS Textract**, validated and risk-scored by **Amazon Bedrock
-(Nova-Lite)**, and persisted to **DynamoDB**. Invoices that extract cleanly are
-auto-approved; anything uncertain, incomplete, or duplicated is routed to a human
-reviewer through a dashboard or a one-click email approval link. Every decision is
-recorded for full auditability.
-
-Zero manual processing for auto-approved invoices.
+- [Resilience & Roadmap](#resilience--roadmap)
+- [License](#license)
 
 ---
 
@@ -52,21 +68,24 @@ INGESTION
 Vendor email → invoices@zexxity.online
       │
       ▼
-Amazon SES Receipt Rule (ap-south-1) → S3 ses-inbound-emails-m3/emails/
+SES Receipt Rule (ap-south-1) → S3 ses-inbound-emails-m3/emails/
       │
       ▼
-SesInboundHandler → copies PDF to invoice bucket (ap-south-1)
-
-Browser Upload → UploadUrlHandler → presigned S3 PUT URL → S3 invoice-processing-buckets-m3/invoices/
+SesInboundHandler → copies PDF to invoice bucket
+                                   │
+Browser Upload → UploadUrlHandler → presigned S3 PUT URL
+                                   ▼
+                    S3 invoice-processing-buckets-m3/invoices/
 
 PROCESSING
 ──────────
 S3 Object Created → EventBridge → InvoiceExtractionHandler
       │
-      ├─ AWS Textract (AnalyzeExpense) → fields + confidence scores
-      ├─ Amazon Bedrock Nova-Lite       → validation + risk score (LOW/MED/HIGH)
-      ├─ DynamoDB PutItem               → persist invoice record
-      └─ Amazon SES (sesv2)             → email reviewer when REVIEW_REQUIRED
+      ├─ AWS Textract (AnalyzeExpense)      → fields + confidence (retries on rate limits)
+      ├─ Amazon Bedrock Nova-Lite           → validation + risk score (LOW/MED/HIGH)
+      ├─ Deterministic rules check          → missing fields / line-item math / confidence
+      ├─ DynamoDB PutItem                   → persist invoice record
+      └─ Brevo transactional email          → reviewer notified when REVIEW_REQUIRED
 
 REVIEW
 ──────
@@ -77,7 +96,7 @@ Reviewer → https://zexxity.online
       └─ Audit     — full history with filters and CSV export
 
       OR one-click approval from email
-      └── TokenApprovalHandler → validates 72h token → writes decision → HTML confirmation
+      └── TokenApprovalHandler → validates 72 h token → writes decision → HTML confirmation
 ```
 
 ---
@@ -86,15 +105,15 @@ Reviewer → https://zexxity.online
 
 | Service | Purpose |
 |---|---|
-| AWS Lambda (Java 21) | All business logic (11 handlers) |
-| Amazon API Gateway (HTTP API) | REST endpoints for the frontend |
+| AWS Lambda (Java 21) | All business logic (10 handlers) |
+| Amazon API Gateway (HTTP API) | REST endpoints for the frontend (`https://xei4kla8v8.execute-api.ap-south-1.amazonaws.com`) |
 | Amazon S3 | Invoice PDFs, inbound emails, audit JSON, deployment JARs |
 | Amazon DynamoDB | Invoice records + review decisions (on-demand billing) |
-| AWS Textract | PDF extraction (AnalyzeExpense) with per-field confidence |
+| Amazon Textract | PDF extraction (`AnalyzeExpense`) with per-field confidence |
 | Amazon Bedrock (Nova-Lite) | AI validation, risk scoring, explanations |
-| Brevo (Sendinblue) | Confirmation + reviewer notification emails |
-| Amazon SES Receipt Rules | Inbound email ingestion (`ap-south-1`) |
-| AWS Secrets Manager | Config: sender, reviewer, model ID, Brevo API key/sender, frontend URL |
+| Brevo (Sendinblue) | Review, confirmation, digest, and escalation emails |
+| Amazon SES | Inbound email ingestion via receipt rules (`ap-south-1`) |
+| AWS Secrets Manager | Runtime config: sender, reviewer, model ID, Brevo API key/sender, frontend URL |
 | AWS EventBridge | S3 event routing + scheduled jobs |
 | AWS Amplify | Frontend hosting + CI/CD from GitHub |
 | Amazon CloudWatch | Logs and metrics for all functions |
@@ -103,9 +122,12 @@ Reviewer → https://zexxity.online
 
 ## Lambda Functions
 
+All functions run in `ap-south-1` — the extraction pipeline's capacity is handled with
+a jittered backoff retry on Textract rate limits, so bursty uploads do not drop invoices.
+
 | Function | Handler | Trigger | Timeout |
 |---|---|---|---|
-| `invoice-extraction-lambda` | `InvoiceExtractionHandler` | EventBridge (S3 event) | 60 s |
+| `invoice-extraction-lambda` | `InvoiceExtractionHandler` | EventBridge (S3 event) | 120 s |
 | `ses-inbound-handler` | `SesInboundHandler` | SES receipt rule | 60 s |
 | `GetInvoiceLambda` | `GetInvoiceHandler` | API Gateway `GET` | 30 s |
 | `ApproveRejectLambda` | `ApproveRejectHandler` | API Gateway `POST` | 30 s |
@@ -114,8 +136,7 @@ Reviewer → https://zexxity.online
 | `daily-digest-report` | `DailyDigestHandler` | EventBridge cron 08:00 IST | 120 s |
 | `expired-review-cleanup` | `ExpiredReviewCleanupHandler` | EventBridge daily | 120 s |
 | `weekly-s3-cleanup` | `S3CleanupHandler` | EventBridge Sunday 02:00 UTC | 120 s |
-
-All run in `ap-south-1`.
+| `lambda-warm` | `WarmUpHandler` | EventBridge every 5 min | 60 s |
 
 ---
 
@@ -125,15 +146,12 @@ All run in `ap-south-1`.
 
 | Method | Path | Lambda | Description |
 |---|---|---|---|
-| `GET` | `/invoices` | GetInvoiceLambda | List invoices + dashboard metrics |
-| `GET` | `/invoices?id=<id>` | GetInvoiceLambda | Single invoice by ID |
-| `POST` | `/invoices/upload-url` | UploadUrlLambda | Presigned S3 PUT URL (5 min) |
-| `POST` | `/invoices/review` | ApproveRejectLambda | Submit APPROVED / REJECTED decision |
-| `GET` | `/invoices/approve?token=` | token-approval | One-click approve (from email) |
-| `GET` | `/invoices/reject?token=` | token-approval | One-click reject (from email) |
-
-Dashboard metrics are computed in parallel against the `validationStatus-index`
-and `reviewDecision-index` GSIs.
+| `GET` | `/invoices` | `GetInvoiceLambda` | List invoices + dashboard metrics (parallel GSI reads) |
+| `GET` | `/invoices?id=<id>` | `GetInvoiceLambda` | Single invoice by ID |
+| `POST` | `/invoices/upload-url` | `UploadUrlLambda` | Presigned S3 PUT URL (5 min expiry) |
+| `POST` | `/invoices/review` | `ApproveRejectLambda` | Submit `APPROVED` / `REJECTED` decision |
+| `GET` | `/invoices/approve?token=` | `token-approval` | One-click approve (from email link) |
+| `GET` | `/invoices/reject?token=` | `token-approval` | One-click reject (from email link) |
 
 ---
 
@@ -147,20 +165,23 @@ lineItemsSum    = sum of all line-item PRICE/UNIT_PRICE amounts
 
 An invoice is AUTO-APPROVED only when ALL of these hold:
     • totalConfidence >= 95%
-    • no field is missing  (missingFields is empty – incl. subtotal)
+    • no field is missing  (missingFields is empty — incl. subtotal)
     • line items add up to the total  (|lineItemsSum − total| <= 0.5)
     • Bedrock says APPROVED
 
 Otherwise:
     validationStatus = REVIEW_REQUIRED
-    SES email sent with one-click approve/reject links (72h token)
+    Brevo email sent with one-click approve/reject links (72 h token)
 
 Duplicate detection:
     if invoiceId already exists → DUPLICATE (risk = HIGH)
 ```
 
-Each extracted field carries a confidence score; average confidence is recorded
-alongside the risk level and the review reason for transparency.
+Extraction failures are handled defensively:
+
+- **Textract rate limits** — `AnalyzeExpense` retried up to 5× with exponential backoff
+  + jitter before the failure propagates to EventBridge's built-in retries.
+- **Every extraction is idempotent** — retries never double-write to DynamoDB.
 
 ---
 
@@ -168,14 +189,14 @@ alongside the risk level and the review reason for transparency.
 
 **Table:** `invoices` · **Partition key:** `invoiceId` (String) · **Billing:** `PAY_PER_REQUEST`
 
-**Global Secondary Indexes:**
+**Global Secondary Indexes**
 
 | Index | Key |
 |---|---|
 | `validationStatus-index` | `validationStatus` (HASH) |
 | `reviewDecision-index` | `reviewDecision` (HASH) |
 
-**Attributes:**
+**Attributes**
 
 | Attribute | Type | Description |
 |---|---|---|
@@ -184,9 +205,9 @@ alongside the risk level and the review reason for transparency.
 | `invoiceDate` | S | Extracted by Textract |
 | `total` | S | Extracted by Textract |
 | `subtotal` | S | Extracted by Textract (may be null) |
-| `lineItemsSum` | N | Sum of line-item amounts (drives the math check) |
+| `lineItemsSum` | N | Sum of line-item amounts — drives the math check |
 | `lineItemCount` | N | Number of line items detected |
-| `totalConfidence` | N | Confidence on TOTAL field — drives routing |
+| `totalConfidence` | N | Confidence on the TOTAL field — drives routing |
 | `avgConfidence` | N | Mean of all field confidence scores |
 | `risk` | S | Bedrock — `LOW` / `MEDIUM` / `HIGH` |
 | `validationStatus` | S | `APPROVED` / `REVIEW_REQUIRED` / `DUPLICATE` |
@@ -201,50 +222,48 @@ alongside the risk level and the review reason for transparency.
 
 ## Email Approval Flow
 
-Outbound notification emails are sent through **Brevo (Sendinblue)** — no longer via SES.
-Daily digest and 72h escalation emails also go through Brevo. The sender shown to the
-reviewer is configured by `brevoSender` in the Secrets Manager secret (a Brevo-validated
-address is required; `zexxity.online` can be domain-authenticated in Brevo later to send
-from `noreply@zexxity.online`).
+Outbound emails are sent through **Brevo (Sendinblue)** — reviewer notifications,
+confirmations, the daily digest, and 72 h escalation summaries.
 
 ```
 Invoice flagged REVIEW_REQUIRED
         │
         ▼
-InvoiceExtractionHandler sends Brevo email with:
+InvoiceExtractionHandler sends a Brevo email with:
   • invoice ID, vendor, amount, confidence scores
-  • one-click APPROVE / REJECT links (72h Base64URL token)
-  • link to the review dashboard: https://zexxity.online/review
+  • one-click APPROVE / REJECT links (72 h Base64URL token)
+  • link to the review dashboard
         │
         ▼
 Reviewer clicks link → TokenApprovalHandler
-  • validates token expiry (72h) and not-already-decided
+  • validates token expiry (72 h) and not-already-decided
   • writes reviewDecision to DynamoDB
-  • returns HTML confirmation page with link back to dashboard
+  • returns an HTML confirmation page with a link back to the dashboard
 
 Reviewer uses UI → ApproveRejectLambda
   • DynamoDB update + Brevo confirmation email run concurrently
     (CompletableFuture.allOf — returns only when both complete)
-  • confirmation email sent to reviewer with decision summary
+  • confirmation email sent to the reviewer with a decision summary
 ```
+
+The sender address is configured by `brevoSender` in the Secrets Manager secret.
+A Brevo-validated address is required; for branded sending from `noreply@zexxity.online`,
+authenticate the `zexxity.online` domain in Brevo.
 
 ---
 
-## Inbound Email (SES)
+## Inbound Email
 
-Inbound invoices arrive at `invoices@zexxity.online` via Amazon SES receipt rules.
+Invoices arrive at `invoices@zexxity.online` via an Amazon SES receipt rule.
 
 | Item | Value |
 |---|---|
 | Domain | `zexxity.online` |
 | Receipt rule set | `invoice-inbound` |
 | Rule | `save-and-process-invoices` (enabled) |
-| Action | Deliver to S3 bucket `ses-inbound-emails-m3/emails/` |
+| Action | Deliver to S3 `ses-inbound-emails-m3/emails/` |
 | Trigger | Invokes `ses-inbound-handler` |
 | MX record | `inbound-smtp.ap-south-1.amazonaws.com` |
-
-Receiving mail requires SES production access (out of the sandbox) and the domain
-identity verified.
 
 ---
 
@@ -252,65 +271,66 @@ identity verified.
 
 | Function | Schedule | Action |
 |---|---|---|
-| `daily-digest-report` | Daily 08:00 IST | Emails summary: new invoices, backlog, high-risk pending |
-| `expired-review-cleanup` | Daily | Escalates `REVIEW_REQUIRED` items undecided after 72 hours; sends fresh links |
-| `weekly-s3-cleanup` | Sunday 02:00 UTC | Deletes raw PDFs older than 30 days. Audit JSON is never deleted. |
+| `daily-digest-report` | Daily 08:00 IST | Emails a summary: new invoices, backlog, high-risk pending |
+| `expired-review-cleanup` | Daily | Escalates undecided `REVIEW_REQUIRED` items after 72 h; sends fresh links |
+| `weekly-s3-cleanup` | Sunday 02:00 UTC | Deletes raw PDFs older than 30 days (audit JSON is never deleted) |
 
 ---
 
 ## Frontend
 
-React 19 + Vite SPA hosted on AWS Amplify (auto-deploys on push to `main`).
+React 19 + Vite SPA hosted on **AWS Amplify** (auto-deploys on push to `main`).
 Connects to API Gateway via the `VITE_API_BASE_URL` build-time environment variable.
 
-**Pages:**
+**Pages**
 
-- `/` — Dashboard: totals, AI approved/rejected, review queue, duplicates, average confidence
-- `/upload` — Drag-and-drop PDF upload with progress tracking
-- `/review` — Pending-approval queue with decision form
-- `/audit` — Full history, filters, and CSV export
-- `/login` — ProtectedRoute-gated reviewer sign-in
+| Route | Purpose |
+|---|---|
+| `/` | Dashboard — totals, approved/rejected, review queue, duplicates, average confidence |
+| `/upload` | Drag-and-drop PDF upload with progress tracking |
+| `/review` | Pending-approval queue with decision form |
+| `/audit` | Full history, filters, and CSV export |
+| `/login` | Protected-route reviewer sign-in |
 
-**Local development:**
+**Local development**
 
 ```bash
 cd invoice-reviewer-react
 npm install
-npm run dev        # http://localhost:5173
+npm run dev     # http://localhost:5173
 ```
 
 ---
 
-## Project Structure
+## Repository Layout
 
 ```
 invoice-processing/
 ├── src/main/java/com/invoice/processing/
-│   ├── ApproveRejectHandler.java         POST /invoices/review + concurrent SES confirmation
-│   ├── DailyDigestHandler.java           scheduled digest email
-│   ├── ExpiredReviewCleanupHandler.java  daily 72h escalation
-│   ├── GetInvoiceHandler.java            GET /invoices (parallel GSI metric counts)
-│   ├── InvoiceData.java                  Textract data model
-│   ├── InvoiceExtractionHandler.java     core pipeline (Textract + Bedrock + SES)
-│   ├── S3CleanupHandler.java             weekly PDF cleanup
-│   ├── SecretsManagerConfig.java         singleton config from Secrets Manager
-│   ├── SesInboundHandler.java            inbound email ingestion
-│   ├── TokenApprovalHandler.java         one-click email approval
-│   └── UploadUrlHandler.java             presigned S3 URL generator
-├── invoice-reviewer-react/               React + Vite frontend (Amplify hosted)
-│   ├── src/
-│   │   ├── components/                   Navbar, MetricCard, FileQueue, DecisionForm, ...
-│   │   ├── pages/                        Dashboard, Upload, Review, Audit, Login
-│   │   ├── services/                     auth, dashboard, review, upload, audit
-│   │   └── hooks/                        useDashboard, useReview, useUpload, useAudit
+│   ├── InvoiceExtractionHandler.java        core pipeline (Textract + Bedrock + rules → ops)
+│   ├── ApproveRejectHandler.java            POST /invoices/review + concurrent confirmation email
+│   ├── TokenApprovalHandler.java            one-click email approval
+│   ├── GetInvoiceHandler.java               GET /invoices (parallel GSI metric counts)
+│   ├── UploadUrlHandler.java                presigned S3 URL generator
+│   ├── SesInboundHandler.java               inbound email ingestion
+│   ├── DailyDigestHandler.java              scheduled digest email
+│   ├── ExpiredReviewCleanupHandler.java     daily 72 h escalation
+│   ├── S3CleanupHandler.java                weekly PDF cleanup
+│   ├── WarmUpHandler.java                   keeps interactive lambdas warm
+│   ├── BrevoMailer.java                     Brevo transactional email client
+│   ├── SecretsManagerConfig.java            singleton config from Secrets Manager
+│   └── InvoiceData.java                     Textract data model
+├── invoice-reviewer-react/                  React + Vite frontend (Amplify hosted)
+│   ├── src/{components,pages,services,hooks,styles}
 │   ├── package.json
 │   └── vite.config.js
-├── load-tests/                           JMeter suite (all API endpoints)
-├── migration/                            account-migration runbook + SAM template v2
-├── .github/workflows/maven.yml           CI: Maven build + dependency graph
-├── amplify.yml                           Amplify build config
-├── deploy.ps1                            one-command AWS deployment
-├── template.yaml                         SAM / CloudFormation (backend)
+├── load-tests/                              JMeter suite (all API endpoints)
+├── migration/                               account-migration runbook + SAM template v2
+├── docs/                                    presentation & interview notes
+├── .github/workflows/maven.yml              CI: Maven build + dependency graph
+├── amplify.yml                              Amplify build config
+├── deploy.ps1                               one-command AWS deployment
+├── template.yaml                            SAM / CloudFormation (backend)
 └── pom.xml
 ```
 
@@ -324,20 +344,14 @@ invoice-processing/
 # Build the Lambda JAR
 mvn clean package -DskipTests
 
-# Upload to the SAM staging bucket
-aws s3 cp target/invoice-extraction-lambda-1.0-SNAPSHOT.jar \
-  s3://invoice-processing-deploy-<account-id>/lambda/invoice-lambda.jar \
-  --region ap-south-1
-
 # Update a single Lambda (example)
 aws lambda update-function-code \
   --function-name ApproveRejectLambda \
-  --s3-bucket invoice-processing-deploy-<account-id> \
-  --s3-key lambda/invoice-lambda.jar \
+  --zip-file fileb://target/invoice-extraction-lambda-1.0-SNAPSHOT.jar \
   --region ap-south-1
 ```
 
-Or deploy everything with the helper script:
+Or deploy everything (SM stack, API Gateway, Secrets Manager secret, S3 bucket + UI):
 
 ```powershell
 .\deploy.ps1
@@ -367,140 +381,70 @@ JMeter suites live in `load-tests/` and cover all API endpoints.
 
 ---
 
-## Resilience, Known Limitations & Future Roadmap
+## Resilience & Roadmap
 
-### Current reliability model
+### Reliability model
 
-Failure recovery relies on **built-in retries only**:
+| Delivery path | Recovery |
+|---|---|
+| S3 → EventBridge → Lambda | Retries up to 24 h / 185 attempts; a persistent failure is dropped (no DLQ yet) |
+| Lambda async invocations | Retried twice; a DLQ is used only if configured |
+| Textract extraction | In-function retry (5 attempts, jittered backoff) on rate limits |
+| SES inbound receipt rule | Retried ~2–3 times ~20 min apart, then the email is lost |
 
-- **S3 → EventBridge → Lambda:** EventBridge retries up to **24 h / 185 attempts**.
-  On persistent failure the event is **silently dropped** — no dead-letter queue.
-- **Lambda async invocations:** retried twice; a DLQ is only used *if configured* (not today).
-- **SES inbound receipt rule:** retried ~2–3 times ~20 min apart, then **the email is lost**.
-- **Browser → S3 upload:** **no client-side retry** — a failed PUT requires a manual retry.
+EventBridge is **at-least-once**: retries can re-process the same object, so extraction
+is idempotent (dedupe on `invoiceId` / `objectKey`).
 
-Notably, EventBridge is **at-least-once**: retries can re-process the same object, so
-extraction must be idempotent (dedupe on `invoiceId` / `objectKey`).
-
-### Cold-start tuning (warm-up lambda)
+### Cold-start tuning
 
 The four interactive functions (`GetInvoiceLambda`, `ApproveRejectLambda`,
-`UploadUrlLambda`, `token-approval`) are published with a `live` alias. A
-scheduled `lambda-warm` (every 5 minutes) synchronously invokes all four `live`
-aliases, keeping their execution environments warm. Handlers build AWS SDK
-clients eagerly so their class graphs are fully initialized on the first call.
-
-Measured against the live API (`GET /invoices`, 512 MB, ap-south-1):
+`UploadUrlLambda`, `token-approval`) are published with a `live` alias. A scheduled
+`lambda-warm` (every 5 min) synchronously invokes the four `live` aliases, keeping their
+execution environments warm. Handlers build AWS SDK clients eagerly so class graphs are
+ready on first call. Latency measured against the live API (`GET /invoices`):
 
 | Case | Latency |
 |---|---|
-| Warm request (steady traffic) | ~200–350 ms |
+| Warm request | ~200–350 ms |
 | First request on a hydrated container | ~200–300 ms |
-| Cold start after >15 min idle (rare) | ~5.5 s |
-
-Notes: Lambda **SnapStart** was evaluated but rejected in production because this
-account's regional concurrency quota is only **10**, and AWS does not allow
-Provisioned Concurrency on SnapStart functions (nor PC at all once it would drop
-unreserved concurrency below the 10 minimum). The warm-up lambda costs a few
-milliseconds of billing every 5 minutes and is the zero-quota-change way to keep
-the interactive path hot. If traffic grows, raise quota `L-B99A9384` and switch
-to Provisioned Concurrency on the `live` alias instead.
-
-### SnapStart evaluation — before & after
-
-Before settling on the warm-up lambda we evaluated **Lambda SnapStart** on the four
-interactive functions (the published `live` versions, 512 MB, ap-south-1). SnapStart
-takes a snapshot of the fully-initialized JVM — class graph, eager SDK clients, and
-JIT state — and **restores that snapshot on cold start instead of re-running init**.
-
-| Scenario | `Init` / `Restore` duration | Cold request (end-to-end) | Warm request |
-|---|---|---|---|
-| **Before** — no SnapStart | `Init Duration ≈ 2,600 ms` | ≈ 5.5 s | ≈ 200–350 ms |
-| **After** — SnapStart on `live` | `Restore Duration ≈ 360–570 ms` (`RESTORE_REPORT`) | ≈ 0.6–1.0 s | ≈ 200–350 ms |
-
-What the evaluation showed:
-
-- **Restore is ~5× faster than init.** The first request after a cold start pays
-  ~0.4 s of snapshot restore instead of ~2.6 s of JVM + SDK initialization.
-- **SDK clients must be built eagerly.** The four handlers construct their AWS SDK
-  clients in `static final` fields so they exist *before* the snapshot is taken. When
-  we tried lazy construction (creating clients on first use, i.e. *after* restore), the
-  very first call ballooned to ~10 s because the entire SDK graph had to initialize
-  post-restore. Eager init is what makes the snapshot pay off — and it also helps the
-  warm-up path described above.
-- **SnapStart works only on published versions.** The functions use
-  `AutoPublishAlias: live`, and both API Gateway and the warm-up lambda target the
-  alias/version (never `$LATEST`).
-- **Not all state survives the snapshot.** Open network connections, random seeds, and
-  credentials are not preserved; a restored environment rebuilds them, so the first
-  outbound call still pays normal connection setup.
-
-**Why it is not enabled in production:** SnapStart cannot be combined with Provisioned
-Concurrency, and this account's regional concurrency quota is only **10** (`L-B99A9384`;
-the default is 1000 and it is still ramping up). Reserving any concurrency would drop
-unreserved concurrency below the required minimum of 10, so neither Provisioned nor
-Reserved Concurrency is possible today. The warm-up lambda was chosen as the
-zero-quota-change alternative. If the quota is raised, the plan is to enable Provisioned
-Concurrency on the `live` alias, at which point SnapStart becomes optional (the two are
-mutually exclusive).
+| Cold start after >15 min idle | ~5.5 s |
 
 ### Known failure modes & edge cases
 
 | # | Risk | Failure scenario | Impact |
 |---|---|---|---|
-| 1 | Poison messages | A PDF is password-protected, corrupt, or a non-supported format | Function retries for up to 24 h, then silently drops the invoice |
-| 2 | Large / multi-page invoices | PDFs over the synchronous Textract limits (≈5 MB) or very long documents time out the 60 s Lambda | Invoice never processed or is dropped |
-| 3 | Upload network failure | Browser PUT to the presigned URL fails mid-flight; the 5-min URL expires during retry | User must re-upload manually; no queue/retry |
-| 4 | Duplicate processing | Same object re-delivered by S3/EventBridge retry | Duplicate record or double Textract/Bedrock cost |
-| 5 | Email without a legible PDF | HTML-only email, no attachment, `docx`/`xlsx` attachment, scanned/photo PDF below quality bar | Nothing extracted; email lost after SES retries |
-| 6 | Abuse / billing attack | Public API endpoints: anyone can call `/invoices/upload-url` and upload arbitrary files via presigned URLs | Unbounded Textract/Bedrock spend; storage abuse |
-| 7 | Unauthenticated review data | `GET /invoices` exposes vendor names + amounts behind only a client-side route guard | Data leak risk; no real authorization |
-| 8 | Review race condition | Reviewer approves via dashboard and the one-click email link simultaneously | Double decision; last-write-wins without a conditional update |
-| 9 | Token replay | One-click approval token valid for 72 h | Repeated approvals possible if no idempotency check |
-| 10 | Silent operational failure | No dead-letter queue, no CloudWatch alarms, no SES bounce/complaint handling | Failures go unnoticed until a user complains |
-| 11 | Invoice stuck forever | `expired-review-cleanup` escalates undecided items; if that scheduled job itself fails, items remain `REVIEW_REQUIRED` indefinitely | Review queue grows silently |
-| 12 | Sender/billing dependencies | Backend default config points to a stale API URL; sandbox-mode SES limits verified recipients | Emails rejected (`Email address is not verified`) |
-| 13 | Regional single point of failure | Everything lives in `ap-south-1` | Regional outage takes the whole system offline (accepted cost trade-off) |
+| 1 | Poison messages | Password-protected, corrupt, or non-PDF document | Function retries up to 24 h, then drops silently |
+| 2 | Large / multi-page invoices | Over Textract synchronous limits (≈5 MB) | Invoice never processed |
+| 3 | Upload network failure | Browser PUT fails mid-flight; 5-min URL expires | Manual re-upload required |
+| 4 | Duplicate processing | Same object re-delivered by an S3/EventBridge retry | Deduped on `invoiceId` / `objectKey` |
+| 5 | Email without a legible PDF | HTML-only email or scanned/photo PDF below quality bar | Nothing extracted; email lost after SES retries |
+| 6 | Abuse / billing attack | Public `/invoices/upload-url` + presigned URLs | Unbounded Textract/Bedrock spend |
+| 7 | Unauthenticated review data | Dashboard data behind only a client-side guard | Data exposure risk |
+| 8 | Review race condition | Dashboard + email-link decisions at the same time | Last-write-wins (no conditional update) |
+| 9 | Token replay | 72 h approval tokens | Repeated decisions possible without idempotency |
+| 10 | Silent operational failure | No DLQ, no CloudWatch alarms, no bounce handling | Failures unnoticed until a user complains |
+| 11 | Invoice stuck forever | Escalation job fails → items stay `REVIEW_REQUIRED` | Review queue grows silently |
+| 12 | Email sender/billing deps | Brevo sender unvalidated / model quota exhausted | Emails rejected until sender verified |
+| 13 | Regional single point of failure | Everything in `ap-south-1` | Regional outage = system offline (accepted trade-off) |
 
-### Roadmap — proposed hardening
+### Roadmap
 
-1. **Durable pipeline with SQS + DLQ**
-   Route `S3 → EventBridge → SQS` and let `invoice-extraction-lambda` consume from the
-   queue. Add a dead-letter queue with `maxReceiveCount: 5` and a CloudWatch alarm on its
-   depth. Nothing is silently lost; poison messages can be inspected and replayed.
-
-2. **Frontend upload retry**
-   On PUT failure, re-request a fresh `/upload-url` and retry with exponential backoff
-   (3–5 attempts). Set upload size/type limits client-side as a first cheap guard.
-
-3. **Idempotent extraction**
-   Dedupe by `objectKey` (check before Textract, or use a conditional write on
-   `invoiceId` + `sourceFile`) so retries never double-process an invoice.
-
-4. **Async extraction for large documents**
-   Switch to asynchronous Textract (`StartExpenseAnalysis`) for multi-page files and
-   process the completion event; keeps within Lambda limits and handles big PDFs.
-
-5. **Real authorization & rate limiting**
-   Add API Gateway authorizer (e.g. Amazon Cognito or a JWT) instead of a client-side
-   route guard; enforce per-IP throttling on `/invoices/upload-url`; validate content
-   type and size before issuing the presigned URL.
-
-6. **Operational observability**
-   CloudWatch alarms on Lambda errors/throttles, DLQ depth, SES bounce + complaint
-   notifications, DynamoDB throttle events, and daily-digest failure. Add a runbook for
-   DLQ replay.
-
-7. **Security hardening**
-   Enable S3 default encryption (SSE-S3/KMS) and bucket versioning; encrypt DynamoDB at
-   rest; restrict IAM to least privilege; turn on CloudTrail for audit.
-
-8. **Regional DR (optional / costly)**
-   If needed later, replicate DynamoDB + S3 to a second region and fail over DNS. Single
-   region is the deliberate cost trade-off today.
+1. **Durable pipeline with SQS + DLQ** — route `S3 → EventBridge → SQS`, consume from the
+   queue, dead-letter with `maxReceiveCount: 5` and a depth alarm. Nothing is lost.
+2. **Frontend upload retry** — re-request `/upload-url` and retry with backoff on PUT failure.
+3. **Idempotent extraction by `objectKey`** — check before Textract to never double-process.
+4. **Async Textract for large documents** — `StartExpenseAnalysis` + completion event.
+5. **Real authorization & rate limiting** — API Gateway authorizer (Cognito/JWT), per-IP
+   throttling, content-type/size validation before presigning.
+6. **Operational observability** — CloudWatch alarms on errors/throttles, DLQ depth,
+   SES bounces + complaints, DynamoDB throttles.
+7. **Security hardening** — S3 default encryption + versioning, DynamoDB encryption at rest,
+   least-privilege IAM, CloudTrail.
+8. **Regional DR (optional)** — replicate DynamoDB + S3 and fail over DNS.
 
 ---
 
 ## License
 
-This is a private project. Reuse requires permission from the repository owner.
+Proprietary — all rights reserved. Reuse requires written permission from the repository
+owner. See [LICENSE](LICENSE).
