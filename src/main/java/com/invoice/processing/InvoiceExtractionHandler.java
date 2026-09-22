@@ -490,12 +490,26 @@ Return ONLY valid JSON – no markdown fences, no extra text.
 }
 """.formatted(objectMapper.writeValueAsString(prompt));
 
-        InvokeModelResponse invokeResponse = bedrockClient.invokeModel(
-                InvokeModelRequest.builder()
-                        .modelId(config.getModelId())
-                        .contentType("application/json")
-                        .body(SdkBytes.fromUtf8String(requestBody))
-                        .build());
+        InvokeModelResponse invokeResponse;
+        try {
+            invokeResponse = bedrockClient.invokeModel(
+                    InvokeModelRequest.builder()
+                            .modelId(config.getModelId())
+                            .contentType("application/json")
+                            .body(SdkBytes.fromUtf8String(requestBody))
+                            .build());
+        } catch (Exception e) {
+            // Never let a Bedrock outage silently drop invoices. Degrade to
+            // deterministic checks only and route to manual review.
+            ctx.getLogger().log("Bedrock validation unavailable (" + e.getMessage()
+                    + ") – degrading to deterministic checks, routing to manual review");
+            BedrockResult degraded = new BedrockResult();
+            degraded.validationStatus = "REVIEW_REQUIRED";
+            degraded.risk            = "MEDIUM";
+            degraded.comments        = "Bedrock validation unavailable (" + e.getMessage()
+                    + "); routed to manual review.";
+            return degraded;
+        }
 
         String rawResponse = invokeResponse.body().asUtf8String();
         ctx.getLogger().log("BEDROCK RAW RESPONSE: " + rawResponse);
