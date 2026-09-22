@@ -7,6 +7,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
@@ -40,6 +42,10 @@ public class InvoiceExtractionHandler
         implements RequestHandler<Map<String, Object>, Map<String, Object>> {
 
     // ── Configuration ──────────────────────────────────────────────────────────
+
+    // Textract often reports the invoice number as an untyped "OTHER" token such
+    // as "# 8439" instead of INVOICE_RECEIPT_ID. Fall back to this pattern.
+    private static final Pattern INVOICE_ID_FROM_HASH = Pattern.compile("#\\s*([0-9][0-9A-Za-z.\\-]*)");
     private static final String DYNAMO_TABLE         = System.getenv("DYNAMO_TABLE") != null
             ? System.getenv("DYNAMO_TABLE") : "invoices";
     private static final double CONFIDENCE_THRESHOLD = 95.0;
@@ -82,9 +88,11 @@ public class InvoiceExtractionHandler
 
             String bucketName = (String) bucket.get("name");
             String objectKey  = URLDecoder.decode((String) object.get("key"), StandardCharsets.UTF_8);
+            String sourceFileName = deriveSourceFileName(objectKey);
 
 
-            context.getLogger().log("Bucket: " + bucketName + "  Key: " + objectKey);
+            context.getLogger().log("Bucket: " + bucketName + "  Key: " + objectKey
+                    + "  SourceFile: " + sourceFileName);
 
             // 1b. Capture when the PDF was published to S3 (drives the dashboard "Uploaded" date)
             Instant uploadedAt = Instant.now();
@@ -172,7 +180,22 @@ public class InvoiceExtractionHandler
             boolean lowConfidence = totalConfidence < CONFIDENCE_THRESHOLD;
             boolean bedrockReview = !"APPROVED".equals(bedrockResult.validationStatus);
 
-            if (lowConfidence || !missingFields.isEmpty() || mathMismatch || bedrockReview) {
+            // Our deterministic check is authoritative for tie-out arithmetic. If
+            // the model claims a math failure but every required field is present,
+            // confidence is high and our own math passes, trust the numbers (the
+            // model frequently hallucinates amounts) and auto-approve.
+            boolean aiMathOnlyDisagreement = Boolean.FALSE.equals(bedrockResult.mathConsistent)
+                    && !mathMismatch
+                    && missingFields.isEmpty()
+                    && !lowConfidence;
+
+            if (aiMathOnlyDisagreement) {
+                validationStatus = "APPROVED";
+                risk            = "LOW";
+                comments        = "Math verifies deterministically (subtotal - discount + shipping + tax = total);"
+                        + " AI tie-out concern overridden by precise check.";
+                context.getLogger().log("APPROVED - deterministic math verified; AI math claim overridden.");
+            } else if (lowConfidence || !missingFields.isEmpty() || mathMismatch || bedrockReview) {
                 validationStatus = "REVIEW_REQUIRED";
 
                 List<String> reasons = new ArrayList<>();
@@ -267,6 +290,7 @@ public class InvoiceExtractionHandler
             result.put("avgConfidence", avgConfidence);         // average of all fields – informational
             result.put("comments", comments);
             result.put("missingFields", missingFields);
+            result.put("sourceFileName", sourceFileName);
             return result;
 
         } catch (Exception e) {
@@ -277,6 +301,28 @@ public class InvoiceExtractionHandler
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
+    /**
+     * Derive the original PDF file name from an S3 object key of the form
+     * {@code invoices/<uuid>-<Original Name>.pdf}. When the key does not match
+     * that shape (older uploads, arbitrary keys), fall back to the last path
+     * segment.
+     */
+    private static String deriveSourceFileName(String objectKey) {
+        String base = objectKey;
+        int slash = base.lastIndexOf('/');
+        if (slash >= 0) base = base.substring(slash + 1);
+
+        if (base.length() > 37) {
+            String head = base.substring(0, 36);
+            if (head.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+                    && base.charAt(36) == '-') {
+                String name = base.substring(37);
+                if (!name.isBlank()) return name;
+            }
+        }
+        return base;
+    }
+
     /** Pull key fields from Textract AnalyzeExpense response. */
     private InvoiceData extractInvoiceData(AnalyzeExpenseResponse response, Context ctx) {
         InvoiceData data = new InvoiceData();
@@ -286,6 +332,7 @@ public class InvoiceExtractionHandler
             // unit rate, …) with no ordering guarantee. Collect candidates and pick
             // the one matching the line-item sum after aggregation.
             List<String> subtotalCandidates = new ArrayList<>();
+            List<String> otherCandidates   = new ArrayList<>();
 
             for (var field : doc.summaryFields()) {
                 String type  = field.type()           != null ? field.type().text()                 : "";
@@ -304,6 +351,21 @@ public class InvoiceExtractionHandler
                     case "TAX"                   ->   data.setTax(value);
                     case "DISCOUNT"              ->   data.setDiscount(value);
                     case "TOTAL"                 -> { data.setTotal(value);         data.setTotalConfidence(conf);  }
+                    case "OTHER"                 ->   otherCandidates.add(value);
+                }
+            }
+
+            // Fallback: some PDFs (e.g. "Invoice # 8439") come back with the number
+            // as an untyped OTHER token. Prefer an "Invoice # <n>"-shaped candidate.
+            if (isBlank(data.getInvoiceId())) {
+                for (String other : otherCandidates) {
+                    Matcher m = INVOICE_ID_FROM_HASH.matcher(other);
+                    if (m.find()) {
+                        data.setInvoiceId(m.group(1).trim());
+                        ctx.getLogger().log("Invoice ID recovered from OTHER '" + other
+                                + "' -> " + data.getInvoiceId());
+                        break;
+                    }
                 }
             }
 
@@ -488,6 +550,9 @@ decision. You must NOT correct, reformat or "fix" the data.
    - If line item amounts are present, their sum must equal the subtotal.
    - A mismatch larger than $0.50 between (line items vs subtotal) or between
      (expectedTotal vs total) is a MAJOR red flag. Flag it.
+   - Do the arithmetic yourself, step by step, using ONLY the numbers in the
+     data. Report your conclusion in "mathConsistent". A difference of $0.50
+     or less counts as consistent.
 4. If anything is uncertain or numbers do not tie out, say so explicitly -
    prefer REVIEW_REQUIRED over forcing approval.
 
@@ -495,7 +560,7 @@ decision. You must NOT correct, reformat or "fix" the data.
 - validationStatus = "APPROVED" ONLY when ALL of these hold:
     * every required field is present (vendorName, invoiceId, invoiceDate,
       subtotal, total)
-    * the math ties out within $0.50 using the schema above
+    * the math ties out within $0.50 using the schema above (mathConsistent)
     * values are plausible (no obviously wrong vendor/amount for the period)
   Otherwise validationStatus = "REVIEW_REQUIRED".
 - risk: "LOW" for a clean, fully consistent invoice; "MEDIUM" for minor
@@ -507,6 +572,8 @@ decision. You must NOT correct, reformat or "fix" the data.
   e.g. "All required fields present; subtotal - discount + shipping = total."
   If flagged, state the concrete reason (e.g. "Missing total; totals do not
   tie out by $1.23.").
+- mathConsistent: boolean. true when the amounts tie out within $0.50 using
+  the schema above, false otherwise. Never null/string.
 
 === OUTPUT CONTRACT ===
 Respond with EXACTLY ONE valid JSON object and NOTHING ELSE - no prose, no
@@ -517,7 +584,8 @@ machine, so a single extra character will break it. Use exactly this shape:
   "risk": "LOW",
   "validationStatus": "APPROVED",
   "missingFields": [],
-  "comments": "All required fields present; subtotal - discount + shipping = total."
+  "comments": "All required fields present; subtotal - discount + shipping = total.",
+  "mathConsistent": true
 }
 
 risk MUST be one of LOW, MEDIUM, HIGH.
@@ -602,6 +670,13 @@ validationStatus MUST be one of APPROVED, REVIEW_REQUIRED.
             result.risk             = textOrDefault(parsed, "risk",             "UNKNOWN");
             result.validationStatus = textOrDefault(parsed, "validationStatus", "UNKNOWN");
             result.comments         = textOrDefault(parsed, "comments",         "");
+
+            // mathConsistent is the model's claim about whether the amount rows
+            // tie out. When it is absent, callers should keep the old behaviour.
+            JsonNode mc = parsed.get("mathConsistent");
+            if (mc != null && mc.isBoolean()) {
+                result.mathConsistent = mc.asBoolean();
+            }
 
             // missingFields can be an array or a comma-separated string
             result.missingFields = new ArrayList<>();
@@ -780,5 +855,6 @@ validationStatus MUST be one of APPROVED, REVIEW_REQUIRED.
         String validationStatus = "UNKNOWN";
         String comments         = "";
         List<String> missingFields = new ArrayList<>();
+        Boolean mathConsistent  = null;   // true/false when the model reports arithmetic
     }
 }

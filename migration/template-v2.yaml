@@ -465,6 +465,7 @@ Resources:
                 comments.$: "$.comments"
                 totalConfidence.$: "$.totalConfidence"
                 avgConfidence.$: "$.avgConfidence"
+                sourceFileName.$: "$.sourceFileName"
                 validationStatus.$: "$.validationStatus"
             TimeoutSeconds: 259200
             Retry:

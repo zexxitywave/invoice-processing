@@ -30,3 +30,5 @@ test-payload.json
 # Deployment artifacts (regenerated per deploy)
 migration/packaged.json
 migration/params.json
+.aws-sam/
+packaged-template.yaml

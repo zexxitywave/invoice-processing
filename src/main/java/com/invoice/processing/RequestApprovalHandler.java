@@ -36,6 +36,7 @@ public class RequestApprovalHandler
             String invoiceId = str(event.get("invoiceId"));
             String risk       = str(event.get("risk"));
             String comments   = str(event.get("comments"));
+            String sourceFile = str(event.get("sourceFileName"));
             double totalConf  = num(event.get("totalConfidence"));
             double avgConf    = num(event.get("avgConfidence"));
 
@@ -57,10 +58,11 @@ public class RequestApprovalHandler
             String reviewUrl = cfg.getFrontendUrl() + "/review?id="
                     + invoiceId.replace("#", "%23").trim();
 
-            String subject = "⚠️ Invoice Requires Manual Review – ID: " + invoiceId;
+            String subject = "⚠️ Invoice Requires Manual Review – " + invoiceId + " (" + sourceFile + ")";
             String body = String.format(
                     "Hello,\n\n"
                   + "An invoice has been flagged for manual review.\n\n"
+                  + "Uploaded PDF file      : %s\n"
                   + "Invoice ID             : %s\n"
                   + "Risk level             : %s\n"
                   + "TOTAL field confidence : %.1f%%  (threshold: %.1f%%)\n"
@@ -74,7 +76,7 @@ public class RequestApprovalHandler
                   + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                   + "Or review with full details in the dashboard:\n%s\n\n"
                   + "— Invoice Processing System",
-                    invoiceId, risk, totalConf, CONFIDENCE_THRESHOLD, avgConf, comments,
+                    sourceFile, invoiceId, risk, totalConf, CONFIDENCE_THRESHOLD, avgConf, comments,
                     approveLink, rejectLink, reviewUrl);
 
             try {
