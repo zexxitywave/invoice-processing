@@ -100,10 +100,11 @@ public class ApproveRejectHandler
                         .tableName(DYNAMO_TABLE)
                         .key(key)
                         .updateExpression(
-                                "SET reviewDecision = :status, "
-                              + "    reviewedAt     = :reviewedAt, "
-                              + "    reviewedBy     = :reviewedBy, "
-                              + "    reviewNote     = :reason")
+                                "SET reviewDecision     = :status, "
+                              + "    validationStatus  = :status, "
+                              + "    reviewedAt        = :reviewedAt, "
+                              + "    reviewedBy        = :reviewedBy, "
+                              + "    reviewNote        = :reason")
                         .expressionAttributeValues(vals)
                         .build());
 

@@ -44,7 +44,8 @@ public class InvoiceExtractionHandler
             ? System.getenv("DYNAMO_TABLE") : "invoices";
     private static final double CONFIDENCE_THRESHOLD = 95.0;
 
-    // Allowed rounding difference between the sum of line items and the invoice total
+    // Allowed rounding difference when reconciling the invoice rows
+    // (line items vs subtotal, and subtotal + shipping + tax vs total)
     // before the invoice is treated as inconsistent and routed to human review.
     private static final double MATH_TOLERANCE = 0.5;
 
@@ -122,14 +123,51 @@ public class InvoiceExtractionHandler
             // 5. Deterministic, rules-based validation.
             //    An invoice is auto-approved ONLY when it is complete, internally
             //    consistent, read with high confidence AND Bedrock agrees. Missing ANY
-            //    field (including subtotal) or line items that do not add up to the
-            //    total forces human review.
+            //    field (including subtotal) or a math row that does not tie out
+            //    (line items vs subtotal, subtotal−discount+shipping+tax vs total)
+            //    forces review.
             List<String> missingFields = computeMissingFields(invoiceData, bedrockResult.missingFields);
 
             Double totalValue   = parseMoney(invoiceData.getTotal());
             Double lineItemsSum = invoiceData.getLineItemsSum();
-            boolean mathMismatch = lineItemsSum != null && totalValue != null
-                    && Math.abs(lineItemsSum - totalValue) > MATH_TOLERANCE;
+            Double subtotalValue = parseMoney(invoiceData.getSubtotal());
+            Double shippingValue = parseMoney(invoiceData.getShipping());
+            Double taxValue      = parseMoney(invoiceData.getTax());
+            Double discountValue = parseMoney(invoiceData.getDiscount());
+
+            // Follow the invoice schema: subtotal − discount + shipping + tax = total.
+            // Line items (when detected) must equal the subtotal; the net amount
+            // (subtotal minus discount) plus shipping/tax must equal the total.
+            List<String> mathReasons = new ArrayList<>();
+            if (lineItemsSum != null && subtotalValue != null && discountValue == null
+                    && Math.abs(lineItemsSum - subtotalValue) > MATH_TOLERANCE) {
+                mathReasons.add("line items sum (" + lineItemsSum
+                        + ") != subtotal (" + subtotalValue + ")");
+            }
+            if (totalValue != null && (subtotalValue != null || lineItemsSum != null)) {
+                double netAmount  = subtotalValue != null ? subtotalValue : lineItemsSum;
+                double expected   = netAmount - (discountValue != null ? discountValue : 0.0)
+                        + (shippingValue != null ? shippingValue : 0.0)
+                        + (taxValue != null ? taxValue : 0.0);
+                if (Math.abs(expected - totalValue) > MATH_TOLERANCE) {
+                    StringBuilder calc = new StringBuilder();
+                    String baseLabel = subtotalValue != null ? "subtotal" : "line items";
+                    calc.append(baseLabel).append(" (").append(netAmount).append(')');
+                    if (discountValue != null) {
+                        calc.append(" − discount (").append(discountValue).append(')');
+                    }
+                    if (shippingValue != null) {
+                        calc.append(" + shipping (").append(shippingValue).append(')');
+                    }
+                    if (taxValue != null) {
+                        calc.append(" + tax (").append(taxValue).append(')');
+                    }
+                    calc.append(" = ").append(expected)
+                            .append(" != total (").append(totalValue).append(')');
+                    mathReasons.add(calc.toString());
+                }
+            }
+            boolean mathMismatch = !mathReasons.isEmpty();
 
             boolean lowConfidence = totalConfidence < CONFIDENCE_THRESHOLD;
             boolean bedrockReview = "REVIEW_REQUIRED".equals(bedrockResult.validationStatus);
@@ -146,8 +184,7 @@ public class InvoiceExtractionHandler
                     reasons.add("missing fields: " + String.join(", ", missingFields));
                 }
                 if (mathMismatch) {
-                    reasons.add("line items sum (" + lineItemsSum
-                            + ") != total (" + totalValue + ")");
+                    reasons.addAll(mathReasons);
                 }
 
                 if (bedrockReview) {
@@ -252,6 +289,9 @@ public class InvoiceExtractionHandler
                     case "INVOICE_RECEIPT_DATE"  -> { data.setInvoiceDate(value);  data.setDateConfidence(conf);   }
                     case "INVOICE_RECEIPT_ID"    -> { data.setInvoiceId(value);    data.setInvoiceIdConfidence(conf); }
                     case "SUBTOTAL"              ->   data.setSubtotal(value);
+                    case "SHIPPING"              ->   data.setShipping(value);
+                    case "TAX"                   ->   data.setTax(value);
+                    case "DISCOUNT"              ->   data.setDiscount(value);
                     case "TOTAL"                 -> { data.setTotal(value);         data.setTotalConfidence(conf);  }
                 }
             }
@@ -611,6 +651,9 @@ Return ONLY valid JSON – no markdown fences, no extra text.
         item.put("vendorName",        s(data.getVendorName()   != null ? data.getVendorName()   : "UNKNOWN"));
         item.put("invoiceDate",       s(data.getInvoiceDate()  != null ? data.getInvoiceDate()  : "UNKNOWN"));
         item.put("subtotal",          s(data.getSubtotal()     != null ? data.getSubtotal()     : "0"));
+        item.put("shipping",          s(data.getShipping()     != null ? data.getShipping()     : "0"));
+        item.put("tax",               s(data.getTax()          != null ? data.getTax()          : "0"));
+        item.put("discount",          s(data.getDiscount()     != null ? data.getDiscount()     : "0"));
         item.put("total",             s(data.getTotal()        != null ? data.getTotal()        : "0"));
         item.put("comments",          s(comments != null ? comments : ""));
         item.put("missingFields",     s(missingFields != null ? String.join(", ", missingFields) : ""));

@@ -6,6 +6,9 @@ public class InvoiceData {
     private String invoiceDate;
     private String invoiceId;
     private String subtotal;
+    private String shipping;
+    private String tax;
+    private String discount;
     private String total;
     private Float vendorConfidence;
     private Float totalConfidence;
@@ -62,6 +65,30 @@ public class InvoiceData {
 
     public void setSubtotal(String subtotal) {
         this.subtotal = subtotal;
+    }
+
+    public String getShipping() {
+        return shipping;
+    }
+
+    public void setShipping(String shipping) {
+        this.shipping = shipping;
+    }
+
+    public String getTax() {
+        return tax;
+    }
+
+    public void setTax(String tax) {
+        this.tax = tax;
+    }
+
+    public String getDiscount() {
+        return discount;
+    }
+
+    public void setDiscount(String discount) {
+        this.discount = discount;
     }
 
     public String getTotal() {
@@ -127,6 +154,9 @@ public class InvoiceData {
                 ", invoiceDate='" + invoiceDate + '\'' +
                 ", invoiceId='" + invoiceId + '\'' +
                 ", subtotal='" + subtotal + '\'' +
+                ", shipping='" + shipping + '\'' +
+                ", tax='" + tax + '\'' +
+                ", discount='" + discount + '\'' +
                 ", total='" + total + '\'' +
                 ", vendorConfidence=" + vendorConfidence +
                 ", totalConfidence=" + totalConfidence +

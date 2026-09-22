@@ -131,10 +131,11 @@ public class TokenApprovalHandler
                     .tableName(DYNAMO_TABLE)
                     .key(key)
                     .updateExpression(
-                            "SET reviewDecision = :decision, "
-                          + "    reviewedAt     = :reviewedAt, "
-                          + "    reviewedBy     = :reviewedBy, "
-                          + "    reviewNote     = :note")
+                            "SET reviewDecision   = :decision, "
+                          + "    validationStatus = :decision, "
+                          + "    reviewedAt       = :reviewedAt, "
+                          + "    reviewedBy       = :reviewedBy, "
+                          + "    reviewNote       = :note")
                     .expressionAttributeValues(vals)
                     .build());
 

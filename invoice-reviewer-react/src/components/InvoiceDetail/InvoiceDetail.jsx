@@ -69,6 +69,21 @@ export default function InvoiceDetail({
         />
 
         <DetailItem
+          label="Shipping"
+          value={invoice.shipping}
+        />
+
+        <DetailItem
+          label="Discount"
+          value={invoice.discount}
+        />
+
+        <DetailItem
+          label="Tax"
+          value={invoice.tax}
+        />
+
+        <DetailItem
           label="Total"
           value={invoice.total}
         />

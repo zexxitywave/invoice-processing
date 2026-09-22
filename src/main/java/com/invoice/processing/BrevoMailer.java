@@ -32,6 +32,12 @@ public final class BrevoMailer {
 
     /** Send a plain-text transactional email via Brevo. Throws on failure. */
     public static void send(String from, String to, String subject, String textContent) throws Exception {
+        send(from, to, subject, textContent, null);
+    }
+
+    /** Send a transactional email via Brevo with both text and optional HTML bodies. */
+    public static void send(String from, String to, String subject, String textContent, String htmlContent)
+            throws Exception {
         SecretsManagerConfig cfg = SecretsManagerConfig.getInstance();
         String apiKey = cfg.getBrevoApiKey();
         if (apiKey == null || apiKey.isBlank()) {
@@ -44,6 +50,9 @@ public final class BrevoMailer {
         body.put("to", List.of(Map.of("email", to)));
         body.put("subject", subject);
         body.put("textContent", textContent);
+        if (htmlContent != null && !htmlContent.isBlank()) {
+            body.put("htmlContent", htmlContent);
+        }
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(BREVO_ENDPOINT))
