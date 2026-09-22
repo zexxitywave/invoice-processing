@@ -51,11 +51,17 @@ export default function useDashboard() {
       const duplicate = data.totalDuplicate?? null;
       setStats(calculateStats(items, total, approved, review, duplicate));
     } catch (err) {
-      setError(err.message || "Unable to load dashboard.");
+      // Keep last successfully loaded data if a refresh fails, so a transient
+      // network/gateway blip never blanks the dashboard.
+      if (invoices.length > 0) {
+        setError(`Refresh failed (${err.status || "network"}) — showing last loaded data. Manual refresh will retry.`);
+      } else {
+        setError(err.message || "Unable to load dashboard.");
+      }
     } finally {
       setLoading(false);
     }
-  }, [calculateStats]);
+  }, [calculateStats, invoices.length]);
 
   useEffect(() => { fetchPage(null); }, [fetchPage]);
 
