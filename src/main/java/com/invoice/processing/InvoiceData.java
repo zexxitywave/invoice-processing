@@ -3,6 +3,7 @@ package com.invoice.processing;
 public class InvoiceData {
 
     private String vendorName;
+    private String receiverName;
     private String invoiceDate;
     private String invoiceId;
     private String subtotal;
@@ -41,6 +42,14 @@ public class InvoiceData {
 
     public void setVendorName(String vendorName) {
         this.vendorName = vendorName;
+    }
+
+    public String getReceiverName() {
+        return receiverName;
+    }
+
+    public void setReceiverName(String receiverName) {
+        this.receiverName = receiverName;
     }
 
     public String getInvoiceDate() {

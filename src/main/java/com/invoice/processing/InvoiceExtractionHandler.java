@@ -180,13 +180,21 @@ public class InvoiceExtractionHandler
             boolean lowConfidence = totalConfidence < CONFIDENCE_THRESHOLD;
             boolean bedrockReview = !"APPROVED".equals(bedrockResult.validationStatus);
 
+            // An unrecoverable vendor NAME (Textract sometimes skips the banner
+            // entirely) is an OCR artifact, not a correctness signal – it must not
+            // force human review when the money checks, required ids, dates and
+            // confidence are all clean. Keep it in `missingFields` for the record.
+            List<String> reviewBlocking = missingFields.stream()
+                    .filter(f -> !"vendorName".equalsIgnoreCase(f))
+                    .toList();
+
             // Our deterministic check is authoritative for tie-out arithmetic. If
             // the model claims a math failure but every required field is present,
             // confidence is high and our own math passes, trust the numbers (the
             // model frequently hallucinates amounts) and auto-approve.
             boolean aiMathOnlyDisagreement = Boolean.FALSE.equals(bedrockResult.mathConsistent)
                     && !mathMismatch
-                    && missingFields.isEmpty()
+                    && reviewBlocking.isEmpty()
                     && !lowConfidence;
 
             if (aiMathOnlyDisagreement) {
@@ -195,7 +203,7 @@ public class InvoiceExtractionHandler
                 comments        = "Math verifies deterministically (subtotal - discount + shipping + tax = total);"
                         + " AI tie-out concern overridden by precise check.";
                 context.getLogger().log("APPROVED - deterministic math verified; AI math claim overridden.");
-            } else if (lowConfidence || !missingFields.isEmpty() || mathMismatch || bedrockReview) {
+            } else if (lowConfidence || !reviewBlocking.isEmpty() || mathMismatch || bedrockReview) {
                 validationStatus = "REVIEW_REQUIRED";
 
                 List<String> reasons = new ArrayList<>();
@@ -333,6 +341,7 @@ public class InvoiceExtractionHandler
             // the one matching the line-item sum after aggregation.
             List<String> subtotalCandidates = new ArrayList<>();
             List<String> otherCandidates   = new ArrayList<>();
+            List<String> nameCandidates    = new ArrayList<>();
 
             for (var field : doc.summaryFields()) {
                 String type  = field.type()           != null ? field.type().text()                 : "";
@@ -352,6 +361,24 @@ public class InvoiceExtractionHandler
                     case "DISCOUNT"              ->   data.setDiscount(value);
                     case "TOTAL"                 -> { data.setTotal(value);         data.setTotalConfidence(conf);  }
                     case "OTHER"                 ->   otherCandidates.add(value);
+                    case "NAME"                  ->   nameCandidates.add(value);
+                    case "RECEIVER_NAME"         ->   data.setReceiverName(value);
+                }
+            }
+
+            // Fallback: Textract sometimes emits the vendor only as a NAME token
+            // (superimposed next to "INVOICE") without a typed VENDOR_NAME. Recover
+            // the NAME that is NOT the receiver (bill-to / ship-to) person.
+            if (isBlank(data.getVendorName())) {
+                String receiver = data.getReceiverName();
+                for (String name : nameCandidates) {
+                    if (isBlank(name)) continue;
+                    String trimmed = name.trim();
+                    if (receiver != null && trimmed.equalsIgnoreCase(receiver.trim())) continue;
+                    data.setVendorName(trimmed);
+                    data.setVendorConfidence(null);   // no conf available on the fallback
+                    ctx.getLogger().log("Vendor recovered from NAME token '" + trimmed + "'");
+                    break;
                 }
             }
 
