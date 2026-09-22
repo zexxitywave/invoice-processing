@@ -23,11 +23,11 @@ export default function useAudit() {
     totalPages: null,
   });
 
-  const fetchPage = useCallback(async (token) => {
+  const fetchPage = useCallback(async (token, search = "") => {
     setLoading(true);
     setError("");
     try {
-      const data  = await getAuditInvoices(PAGE_SIZE, token);
+      const data  = await getAuditInvoices(PAGE_SIZE, token, search);
       const items = Array.isArray(data) ? data : (data.items ?? []);
       setInvoices(items);
       setNextToken(data.nextToken ?? null);
@@ -51,7 +51,22 @@ export default function useAudit() {
     }
   }, []);
 
-  useEffect(() => { fetchPage(null); }, [fetchPage]);
+  // Normalize "# 2642" / " #2642" to "2642" so the query matches stored ids
+  const normalizedSearch = useMemo(
+    () => filters.search.replace(/^#+\s*/, "").trim(),
+    [filters.search]
+  );
+
+  // Search runs on the backend across ALL invoices (not just the current
+  // page). Debounce keystrokes and reset pagination when it changes.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPrevTokens([]);
+      setCurrentToken(null);
+      fetchPage(null, normalizedSearch);
+    }, normalizedSearch ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [normalizedSearch, fetchPage]);
 
   const refresh = useCallback(() => {
     setPrevTokens([]);
@@ -79,14 +94,13 @@ export default function useAudit() {
     return invoices.filter((invoice) => {
       if (filters.status && invoice.validationStatus !== filters.status) return false;
       if (filters.risk   && invoice.risk !== filters.risk)               return false;
-      if (filters.search) {
-        const keyword    = filters.search.toLowerCase();
+      if (normalizedSearch) {
         const searchable = `${invoice.invoiceId ?? ""} ${invoice.vendorName ?? ""}`.toLowerCase();
-        if (!searchable.includes(keyword)) return false;
+        if (!searchable.includes(normalizedSearch)) return false;
       }
       return true;
     });
-  }, [filters, invoices]);
+  }, [filters, invoices, normalizedSearch]);
 
   // Average confidence calculated from current page (display only)
   const averageConfidence = useMemo(() => {

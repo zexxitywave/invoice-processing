@@ -71,35 +71,42 @@ public class GetInvoiceHandler
                 return warm;
             }
 
-            // Extract ?id=... query parameter if present
+            // Extract ?id=... and ?search=... query parameters if present
             String invoiceId = null;
+            String search    = null;
             Object qsp = event.get("queryStringParameters");
             if (qsp instanceof Map) {
                 invoiceId = (String) ((Map<?, ?>) qsp).get("id");
+                search    = (String) ((Map<?, ?>) qsp).get("search");
             }
+            invoiceId = normalizeId(invoiceId);
 
-            if (invoiceId != null && !invoiceId.isBlank()) {
+            if (!invoiceId.isBlank()) {
                 // ── Single invoice lookup ──────────────────────────────────
                 return getById(invoiceId, context);
-            } else {
-                // ── Paginated list ─────────────────────────────────────────
-                int pageSize = 20;
-                String nextToken = null;
-
-                if (qsp instanceof Map) {
-                    String pageSizeStr = (String) ((Map<?, ?>) qsp).get("pageSize");
-                    String nextTokenStr = (String) ((Map<?, ?>) qsp).get("nextToken");
-                    if (pageSizeStr != null && !pageSizeStr.isBlank()) {
-                        try { pageSize = Math.min(100, Math.max(1, Integer.parseInt(pageSizeStr))); }
-                        catch (NumberFormatException ignored) {}
-                    }
-                    if (nextTokenStr != null && !nextTokenStr.isBlank()) {
-                        nextToken = nextTokenStr;
-                    }
-                }
-
-                return listPaged(pageSize, nextToken, context);
             }
+
+            int pageSize = 20;
+            String nextToken = null;
+            if (qsp instanceof Map) {
+                String pageSizeStr  = (String) ((Map<?, ?>) qsp).get("pageSize");
+                String nextTokenStr = (String) ((Map<?, ?>) qsp).get("nextToken");
+                if (pageSizeStr != null && !pageSizeStr.isBlank()) {
+                    try { pageSize = Math.min(100, Math.max(1, Integer.parseInt(pageSizeStr))); }
+                    catch (NumberFormatException ignored) {}
+                }
+                if (nextTokenStr != null && !nextTokenStr.isBlank()) {
+                    nextToken = nextTokenStr;
+                }
+            }
+
+            if (search != null && !search.isBlank()) {
+                // ── Search across ALL invoices (case-insensitive) ─────────
+                return searchPaged(normalizeId(search), pageSize, context);
+            }
+
+            // ── Paginated list ─────────────────────────────────────────────
+            return listPaged(pageSize, nextToken, context);
 
         } catch (Exception e) {
             context.getLogger().log("GetInvoice ERROR: " + e.getMessage());
@@ -120,6 +127,17 @@ public class GetInvoiceHandler
                         .build());
 
         if (!response.hasItem()) {
+            // Historic records store the id with its leading "#" (e.g. "#2642",
+            // "# 21500"). Resolve to the record whose normalized id matches.
+            String needle = normalizeId(invoiceId);
+            for (Map<String, Object> candidate : findMatches(needle)) {
+                String stored = String.valueOf(candidate.getOrDefault("invoiceId", ""));
+                if (normalizeId(stored).equalsIgnoreCase(needle)) {
+                    ctx.getLogger().log("GetInvoice: by-id '" + invoiceId
+                            + "' resolved to stored id '" + stored + "'");
+                    return successResponse(candidate);
+                }
+            }
             return errorResponse(404, "Invoice not found: " + invoiceId);
         }
 
@@ -166,17 +184,7 @@ public class GetInvoiceHandler
             return dynamoDbClient.scan(b.build());
         });
 
-        CompletableFuture<Integer> totalCountF         = CompletableFuture.supplyAsync(() -> getTotalCount(ctx));
-        CompletableFuture<Integer> totalApprovedF      = CompletableFuture.supplyAsync(() -> getCountByStatus("APPROVED", ctx));
-        CompletableFuture<Integer> totalReviewF        = CompletableFuture.supplyAsync(() -> getCountByStatus("REVIEW_REQUIRED", ctx));
-        CompletableFuture<Integer> totalDuplicateF     = CompletableFuture.supplyAsync(() -> getCountByStatus("DUPLICATE", ctx));
-        CompletableFuture<Integer> totalHumanApprovedF = CompletableFuture.supplyAsync(() -> getCountByDecision("APPROVED", ctx));
-        CompletableFuture<Integer> totalHumanRejectedF = CompletableFuture.supplyAsync(() -> getCountByDecision("REJECTED", ctx));
-
-        // Wait for all 7 to complete simultaneously
-        CompletableFuture.allOf(scanF, totalCountF, totalApprovedF, totalReviewF,
-                totalDuplicateF, totalHumanApprovedF, totalHumanRejectedF).join();
-
+        // Wait for the scan to complete, then merge in the stable counts
         ScanResponse resp = scanF.join();
         List<Map<String, Object>> items = new ArrayList<>();
         resp.items().forEach(item -> items.add(itemToMap(item)));
@@ -190,22 +198,93 @@ public class GetInvoiceHandler
             newNextToken = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes());
         }
 
-        Map<String, Object> result = new HashMap<>();
+        Map<String, Object> result = loadCounts(ctx);
         result.put("items",              items);
         result.put("nextToken",          newNextToken);
         result.put("pageSize",           pageSize);
         result.put("count",              items.size());
-        result.put("totalCount",         totalCountF.join());
-        result.put("totalApproved",      totalApprovedF.join());
-        result.put("totalReview",        totalReviewF.join());
-        result.put("totalDuplicate",     totalDuplicateF.join());
-        result.put("totalHumanApproved", totalHumanApprovedF.join());
-        result.put("totalHumanRejected", totalHumanRejectedF.join());
 
         ctx.getLogger().log("GetInvoice: returned " + items.size()
                 + " items, hasMore=" + (newNextToken != null));
 
         return successResponse(result);
+    }
+
+    // ── Full-table case-insensitive search ─────────────────────────────────────
+    // The Audit page lets users search by invoice id or vendor. Because the
+    // table is small, and to keep matching case-insensitive (DynamoDB contains
+    // is case-sensitive), we scan the whole table in Java and return every
+    // match in one response (search results ignore pagination).
+    private Map<String, Object> searchPaged(String search, int pageSize, Context ctx) throws Exception {
+        List<Map<String, Object>> matches = findMatches(search);
+
+        Map<String, Object> result = loadCounts(ctx);
+        result.put("items",              matches);
+        result.put("nextToken",          null);
+        result.put("pageSize",           pageSize);
+        result.put("count",              matches.size());
+        result.put("search",             search);
+
+        ctx.getLogger().log("GetInvoice: search '" + search + "' matched " + matches.size() + " items");
+        return successResponse(result);
+    }
+
+    /** Case-insensitive contains match on invoiceId or vendorName across the whole table. */
+    private List<Map<String, Object>> findMatches(String search) {
+        String needle = search == null ? "" : search.toLowerCase();
+        if (needle.isBlank()) return new ArrayList<>();
+        List<Map<String, Object>> matches = new ArrayList<>();
+        Map<String, AttributeValue> lastKey = new HashMap<>();
+
+        do {
+            ScanRequest.Builder b = ScanRequest.builder()
+                    .tableName(DYNAMO_TABLE)
+                    .limit(100);
+            if (!lastKey.isEmpty()) b.exclusiveStartKey(lastKey);
+            ScanResponse r = dynamoDbClient.scan(b.build());
+            for (var item : r.items()) {
+                Map<String, Object> m = itemToMap(item);
+                String id   = String.valueOf(m.getOrDefault("invoiceId", ""));
+                String vend = String.valueOf(m.getOrDefault("vendorName", ""));
+                if (id.toLowerCase().contains(needle) || vend.toLowerCase().contains(needle)) {
+                    matches.add(m);
+                }
+            }
+            lastKey = r.lastEvaluatedKey();
+        } while (!lastKey.isEmpty());
+        return matches;
+    }
+
+    /** Trim whitespace and strip a leading '#' so "# 2642" matches stored "2642". */
+    private String normalizeId(String raw) {
+        if (raw == null) return "";
+        String s = raw.trim();
+        while (s.startsWith("#")) {
+            s = s.substring(1).trim();
+        }
+        return s;
+    }
+
+    /** Stable global counts, loaded in parallel (total + 6 status/decision counts). */
+    private Map<String, Object> loadCounts(Context ctx) throws Exception {
+        CompletableFuture<Integer> totalCountF         = CompletableFuture.supplyAsync(() -> getTotalCount(ctx));
+        CompletableFuture<Integer> totalApprovedF      = CompletableFuture.supplyAsync(() -> getCountByStatus("APPROVED", ctx));
+        CompletableFuture<Integer> totalReviewF        = CompletableFuture.supplyAsync(() -> getCountByStatus("REVIEW_REQUIRED", ctx));
+        CompletableFuture<Integer> totalDuplicateF     = CompletableFuture.supplyAsync(() -> getCountByStatus("DUPLICATE", ctx));
+        CompletableFuture<Integer> totalHumanApprovedF = CompletableFuture.supplyAsync(() -> getCountByDecision("APPROVED", ctx));
+        CompletableFuture<Integer> totalHumanRejectedF = CompletableFuture.supplyAsync(() -> getCountByDecision("REJECTED", ctx));
+
+        CompletableFuture.allOf(totalCountF, totalApprovedF, totalReviewF,
+                totalDuplicateF, totalHumanApprovedF, totalHumanRejectedF).join();
+
+        Map<String, Object> counts = new HashMap<>();
+        counts.put("totalCount",         totalCountF.join());
+        counts.put("totalApproved",      totalApprovedF.join());
+        counts.put("totalReview",        totalReviewF.join());
+        counts.put("totalDuplicate",     totalDuplicateF.join());
+        counts.put("totalHumanApproved", totalHumanApprovedF.join());
+        counts.put("totalHumanRejected", totalHumanRejectedF.join());
+        return counts;
     }
 
     // ── Get count of items by validationStatus using GSI (Query, not Scan) ──────

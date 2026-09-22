@@ -34,10 +34,12 @@ async function request(
  * Returns one page of invoices.
  * @param {number} pageSize
  * @param {string|null} nextToken  - cursor from previous response
+ * @param {string} search          - optional case-insensitive id/vendor search
  */
-export async function getAuditInvoices(pageSize = 20, nextToken = null) {
+export async function getAuditInvoices(pageSize = 20, nextToken = null, search = "") {
   const params = new URLSearchParams({ pageSize });
   if (nextToken) params.set("nextToken", nextToken);
+  if (search)   params.set("search", search.trim());
   return request(`/invoices?${params.toString()}`);
 }
 
