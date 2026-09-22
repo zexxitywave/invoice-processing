@@ -170,7 +170,7 @@ public class InvoiceExtractionHandler
             boolean mathMismatch = !mathReasons.isEmpty();
 
             boolean lowConfidence = totalConfidence < CONFIDENCE_THRESHOLD;
-            boolean bedrockReview = "REVIEW_REQUIRED".equals(bedrockResult.validationStatus);
+            boolean bedrockReview = !"APPROVED".equals(bedrockResult.validationStatus);
 
             if (lowConfidence || !missingFields.isEmpty() || mathMismatch || bedrockReview) {
                 validationStatus = "REVIEW_REQUIRED";
@@ -202,6 +202,12 @@ public class InvoiceExtractionHandler
             } else {
                 validationStatus = "APPROVED";
                 context.getLogger().log("APPROVED – complete, consistent, confident, AI agreed.");
+            }
+
+            // A model that stayed silent or returned UNKNOWN must never leave a
+            // fuzzy risk behind: default to LOW for approvals, MEDIUM for reviews.
+            if (risk == null || risk.isBlank() || "UNKNOWN".equals(risk)) {
+                risk = "APPROVED".equals(validationStatus) ? "LOW" : "MEDIUM";
             }
 
             // 6. Duplicate detection – must happen after Bedrock so we still know the duplicate
@@ -462,20 +468,61 @@ public class InvoiceExtractionHandler
     /** Call Bedrock Nova-Lite and parse the structured JSON response. */
     private BedrockResult invokeBedrockValidation(String invoiceJson, Context ctx) throws Exception {
         String prompt = """
-You are an invoice validation assistant.
+You are a strict invoice validation assistant for an automated approval system.
 
-Analyze this invoice data:
+You are given JSON extracted from an invoice. Your ONLY job is to CHECK it for
+completeness, internal consistency and plausibility, then return a pass/flag
+decision. You must NOT correct, reformat or "fix" the data.
 
+=== DATA TO CHECK ===
 %s
 
-Return ONLY valid JSON – no markdown fences, no extra text.
+=== GROUND RULES ===
+1. Trust the extracted values. Never invent, correct or reformat numbers or
+   text. Preserve currency formatting exactly as provided (e.g. "$1,015.68").
+   A null or blank value means the field was not found on the invoice; do not
+   guess it.
+2. A field counts as "missing" ONLY when it is absent, null or blank
+   (whitespace only). Zero amounts such as 0, 0.0, $0.00 are VALID, NOT missing.
+3. Re-verify the math using this exact invoice schema:
+     expectedTotal = subtotal - discount + shipping + tax
+   - If line item amounts are present, their sum must equal the subtotal.
+   - A mismatch larger than $0.50 between (line items vs subtotal) or between
+     (expectedTotal vs total) is a MAJOR red flag. Flag it.
+4. If anything is uncertain or numbers do not tie out, say so explicitly -
+   prefer REVIEW_REQUIRED over forcing approval.
+
+=== DECISION RULES ===
+- validationStatus = "APPROVED" ONLY when ALL of these hold:
+    * every required field is present (vendorName, invoiceId, invoiceDate,
+      subtotal, total)
+    * the math ties out within $0.50 using the schema above
+    * values are plausible (no obviously wrong vendor/amount for the period)
+  Otherwise validationStatus = "REVIEW_REQUIRED".
+- risk: "LOW" for a clean, fully consistent invoice; "MEDIUM" for minor
+  gaps or a single explainable inconsistency; "HIGH" for missing required
+  fields, math that does not tie out, or implausible values.
+- missingFields: list ONLY the truly missing fields. Omit fields that are
+  present, null-but-irrelevant, or zero. Use exact field names from the data.
+- comments: exactly one short, factual sentence stating your main finding,
+  e.g. "All required fields present; subtotal - discount + shipping = total."
+  If flagged, state the concrete reason (e.g. "Missing total; totals do not
+  tie out by $1.23.").
+
+=== OUTPUT CONTRACT ===
+Respond with EXACTLY ONE valid JSON object and NOTHING ELSE - no prose, no
+markdown, no code fences, no trailing explanation. This output is parsed by a
+machine, so a single extra character will break it. Use exactly this shape:
 
 {
-  "risk": "LOW|MEDIUM|HIGH",
-  "validationStatus": "APPROVED|REVIEW_REQUIRED",
+  "risk": "LOW",
+  "validationStatus": "APPROVED",
   "missingFields": [],
-  "comments": "short explanation"
+  "comments": "All required fields present; subtotal - discount + shipping = total."
 }
+
+risk MUST be one of LOW, MEDIUM, HIGH.
+validationStatus MUST be one of APPROVED, REVIEW_REQUIRED.
 """.formatted(invoiceJson);
 
         String requestBody = """
@@ -486,7 +533,7 @@ Return ONLY valid JSON – no markdown fences, no extra text.
       "content": [{ "text": %s }]
     }
   ],
-  "inferenceConfig": { "maxTokens": 500, "temperature": 0.2 }
+  "inferenceConfig": { "maxTokens": 500, "temperature": 0.1 }
 }
 """.formatted(objectMapper.writeValueAsString(prompt));
 
