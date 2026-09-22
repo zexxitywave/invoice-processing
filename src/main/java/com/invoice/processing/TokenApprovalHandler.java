@@ -15,6 +15,8 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
+import software.amazon.awssdk.services.sfn.SfnClient;
+import software.amazon.awssdk.services.sfn.model.SendTaskSuccessRequest;
 
 /**
  * TokenApprovalHandler – handles one-click Approve / Reject links embedded
@@ -42,6 +44,11 @@ public class TokenApprovalHandler
     // Built eagerly at handler init so the SDK stack is captured in the SnapStart
     // snapshot; the restored environment reuses this fully-formed client.
     private static final DynamoDbClient dynamoDbClient = DynamoDbClient.builder()
+            .region(Region.AP_SOUTH_1).build();
+
+    // Used to resume the Step Functions execution that is waiting on this
+    // human decision (WaitForTaskToken callback from the RequestApproval state).
+    private static final SfnClient sfnClient = SfnClient.builder()
             .region(Region.AP_SOUTH_1).build();
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -142,6 +149,27 @@ public class TokenApprovalHandler
             context.getLogger().log("Email-link decision recorded: "
                     + payload.invoiceId + " → " + payload.decision);
 
+            // ── Resume the Step Functions execution waiting on this decision ───
+            // The approval token carries the SFN task token (RequestApproval
+            // WaitForTaskToken state). SendTaskSuccess completes that state.
+            if (payload.taskToken != null && !payload.taskToken.isBlank()) {
+                try {
+                    String output = objectMapper.writeValueAsString(Map.of(
+                            "decision",  payload.decision,
+                            "invoiceId", payload.invoiceId,
+                            "reviewedBy", "email-link"));
+                    sfnClient.sendTaskSuccess(SendTaskSuccessRequest.builder()
+                            .taskToken(payload.taskToken)
+                            .output(output)
+                            .build());
+                    context.getLogger().log("Step Functions resumed: "
+                            + payload.invoiceId + " → " + payload.decision);
+                } catch (Exception e) {
+                    context.getLogger().log("WARNING: could not resume Step Functions: "
+                            + e.getMessage());
+                }
+            }
+
             // ── Return confirmation HTML page ──────────────────────────────────
             boolean approved = "APPROVED".equals(payload.decision);
             return htmlResponse(200,
@@ -219,5 +247,6 @@ public class TokenApprovalHandler
         public String invoiceId;
         public String decision;
         public long   exp;
+        public String taskToken;
     }
 }

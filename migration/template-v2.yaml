@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Invoice Processing System v2 – mirrors production in account 977574654100 (Lambdas, HTTP API, Step Functions, EventBridge S3 rule, schedules)
+Description: Invoice Processing System – event-driven invoice ingestion (SES/upload), Textract extraction, Bedrock (Nova) validation, Step Functions orchestration with human-approval callback, DynamoDB + S3 audit, Amplify reviewer UI, Secrets Manager. Live in account 891377127368.
 
 Parameters:
   InvoiceBucketName:
@@ -104,6 +104,10 @@ Resources:
               - Effect: Allow
                 Action:
                   - bedrock:InvokeModel
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - states:SendTaskSuccess
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -272,6 +276,19 @@ Resources:
             Path: /invoices/reject
             Method: GET
 
+  # ── Lambda: Request Approval (invoked by Step Functions, WaitForTaskToken) ──
+  RequestApprovalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: request-approval
+      Handler: com.invoice.processing.RequestApprovalHandler::handleRequest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          API_BASE_URL: !Sub "https://${InvoiceApi}.execute-api.${AWS::Region}.amazonaws.com"
+
   # ── Lambda: Warm-up (keeps interactive containers hot every 5 min) ─────────
   WarmUpFunction:
     Type: AWS::Serverless::Function
@@ -392,7 +409,14 @@ Resources:
             Schedule: cron(0 2 ? * SUN *)
             Enabled: true
 
-  # ── Step Functions: Invoice Processing (matches MyStateMachine-d7276cc1) ───
+  # ── Step Functions: Invoice Processing ──────────────────────────────────────
+  #  1. ProcessInvoice      – Textract + Bedrock (Nova) validation (retry 4×)
+  #  2. CheckStatus         – APPROVED -> Done; REVIEW_REQUIRED -> human approval;
+  #                           anything else (DUPLICATE/UNKNOWN) -> recorded end
+  #  3. RequestApproval     – WaitForTaskToken: emails reviewer one-click links
+  #                           carrying the task token; waits up to 72h
+  #  4. DecisionOutcome     – reviewer decision (APPROVED/REJECTED) resumes here
+  #  Timeouts: ProcessInvoice 55s; RequestApproval 259200s (72h) -> timed out run
   InvoiceProcessingStateMachine:
     Type: AWS::Serverless::StateMachine
     Properties:
@@ -408,10 +432,13 @@ Resources:
               FunctionName: invoice-extraction-lambda
               Payload.$: "$"
             OutputPath: "$.Payload"
+            TimeoutSeconds: 55
             Retry:
               - ErrorEquals:
                   - "java.lang.RuntimeException"
                   - "States.TaskFailed"
+                  - "Lambda.ServiceException"
+                  - "Lambda.TooManyRequestsException"
                 IntervalSeconds: 5
                 MaxAttempts: 4
                 BackoffRate: 3.0
@@ -422,8 +449,60 @@ Resources:
               - Variable: "$.validationStatus"
                 StringEquals: APPROVED
                 Next: Approved
+              - Variable: "$.validationStatus"
+                StringEquals: REVIEW_REQUIRED
+                Next: RequestApproval
             Default: ReviewOrDuplicate
+          RequestApproval:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke.waitForTaskToken
+            Parameters:
+              FunctionName: request-approval
+              Payload:
+                taskToken.$: "$$.Task.Token"
+                invoiceId.$: "$.invoiceId"
+                risk.$: "$.risk"
+                comments.$: "$.comments"
+                totalConfidence.$: "$.totalConfidence"
+                avgConfidence.$: "$.avgConfidence"
+                validationStatus.$: "$.validationStatus"
+            TimeoutSeconds: 259200
+            Retry:
+              - ErrorEquals:
+                  - "Lambda.ServiceException"
+                  - "Lambda.TooManyRequestsException"
+                  - "States.TaskFailed"
+                IntervalSeconds: 5
+                MaxAttempts: 3
+                BackoffRate: 2.0
+            Catch:
+              - ErrorEquals:
+                  - States.Timeout
+                Next: ApprovalTimedOut
+              - ErrorEquals:
+                  - States.ALL
+                Next: RequestFailed
+            Next: DecisionOutcome
+          DecisionOutcome:
+            Type: Choice
+            Choices:
+              - Variable: "$.decision"
+                StringEquals: APPROVED
+                Next: Approved
+              - Variable: "$.decision"
+                StringEquals: REJECTED
+                Next: Rejected
+            Default: RequestFailed
           Approved:
+            Type: Pass
+            End: true
+          Rejected:
+            Type: Pass
+            End: true
+          ApprovalTimedOut:
+            Type: Pass
+            End: true
+          RequestFailed:
             Type: Pass
             End: true
           ReviewOrDuplicate:
@@ -447,7 +526,9 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: lambda:InvokeFunction
-                Resource: !GetAtt InvoiceExtractionFunction.Arn
+                Resource:
+                  - !GetAtt InvoiceExtractionFunction.Arn
+                  - !GetAtt RequestApprovalFunction.Arn
 
   # ── EventBridge: S3 Object Created → Step Functions ───────────────────────
   InvoiceUploadRule:
@@ -513,6 +594,9 @@ Outputs:
 
   TokenApprovalFunctionArn:
     Value: !GetAtt TokenApprovalFunction.Arn
+
+  RequestApprovalFunctionArn:
+    Value: !GetAtt RequestApprovalFunction.Arn
 
   SesInboundFunctionArn:
     Value: !GetAtt SesInboundFunction.Arn

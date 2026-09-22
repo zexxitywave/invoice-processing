@@ -254,10 +254,9 @@ public class InvoiceExtractionHandler
                         + "' – original record kept");
             }
 
-            // 9. Notification when review is required
-            if ("REVIEW_REQUIRED".equals(validationStatus)) {
-                sendReviewEmail(invoiceId, totalConfidence, avgConfidence, comments, context);
-            }
+            // 9. Review notifications are handled by the Step Functions
+            //    RequestApproval state, which emails the reviewer links that
+            //    carry the task token (WaitForTaskToken).
 
             // 10. Return result to Step Functions
             Map<String, Object> result = new HashMap<>();
@@ -760,67 +759,6 @@ validationStatus MUST be one of APPROVED, REVIEW_REQUIRED.
         return (id == null || id.isBlank())
                 ? "UNKNOWN-" + System.currentTimeMillis() + "-" + ThreadLocalRandom.current().nextInt(1000, 9999)
                 : id;
-    }
-
-    /** Send a review-required email via Brevo with one-click approve/reject links. */
-    private void sendReviewEmail(String invoiceId, double totalConf,
-                                 double avgConf, String comments, Context ctx) {
-        try {
-            SecretsManagerConfig cfg = SecretsManagerConfig.getInstance();
-
-            // ── Generate approve/reject tokens (72-hour expiry) ────────────────
-            long exp = Instant.now().getEpochSecond() + (72 * 60 * 60L);
-            String approveToken = buildToken(invoiceId, "APPROVED", exp);
-            String rejectToken  = buildToken(invoiceId, "REJECTED",  exp);
-
-            String apiBase   = System.getenv("API_BASE_URL") != null
-                    ? System.getenv("API_BASE_URL")
-                    : "https://xi78f9b5fe.execute-api.ap-south-1.amazonaws.com";
-
-            String approveLink = apiBase + "/invoices/approve?token=" + approveToken;
-            String rejectLink  = apiBase + "/invoices/reject?token="  + rejectToken;
-            String reviewUrl   = cfg.getFrontendUrl()
-                    + "/review?id=" + invoiceId.replace("#", "%23").trim();
-
-            String subject = "⚠️ Invoice Requires Manual Review – ID: " + invoiceId;
-            String body = String.format(
-                    "Hello,\n\n"
-                  + "An invoice has been flagged for manual review.\n\n"
-                  + "Invoice ID             : %s\n"
-                  + "TOTAL field confidence : %.1f%%  (threshold: %.1f%%)\n"
-                  + "Average confidence     : %.1f%%\n"
-                  + "Comments               : %s\n\n"
-                  + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                  + "ONE-CLICK DECISION (no login required):\n\n"
-                  + "✅ APPROVE this invoice:\n%s\n\n"
-                  + "❌ REJECT this invoice:\n%s\n\n"
-                  + "⏰ Links expire in 72 hours.\n"
-                  + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                  + "Or review with full details in the dashboard:\n%s\n\n"
-                  + "— Invoice Processing System",
-                    invoiceId, totalConf, CONFIDENCE_THRESHOLD, avgConf, comments,
-                    approveLink, rejectLink, reviewUrl);
-
-            BrevoMailer.send(cfg.getBrevoSender(), cfg.getSesReviewer(), subject, body);
-
-            ctx.getLogger().log("Brevo review email with approval links sent for invoice "
-                    + invoiceId + " to " + cfg.getSesReviewer());
-
-        } catch (Exception e) {
-            ctx.getLogger().log("WARNING: Failed to send review email: " + e.getMessage());
-        }
-    }
-
-    /** Build a Base64URL-encoded token for one-click email approval. */
-    private String buildToken(String invoiceId, String decision, long exp) {
-        try {
-            String json = objectMapper.writeValueAsString(
-                    Map.of("invoiceId", invoiceId, "decision", decision, "exp", exp));
-            return java.util.Base64.getUrlEncoder().withoutPadding()
-                    .encodeToString(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        } catch (Exception e) {
-            return "";
-        }
     }
 
     // ── DynamoDB value builders ────────────────────────────────────────────────

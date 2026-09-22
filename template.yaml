@@ -1,18 +1,36 @@
-﻿AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Invoice Processing System – Lambda + API Gateway
+Description: Invoice Processing System – event-driven invoice ingestion (SES/upload), Textract extraction, Bedrock (Nova) validation, Step Functions orchestration with human-approval callback, DynamoDB + S3 audit, Amplify reviewer UI, Secrets Manager. Live in account 891377127368.
+
+Parameters:
+  InvoiceBucketName:
+    Type: String
+    Default: invoice-processing-buckets
+    Description: Main invoice bucket (use NEW name if old name is locked by the suspended account)
+  SesInboundBucketName:
+    Type: String
+    Default: ses-inbound-emails
+    Description: SES raw email bucket in ap-south-1 (use NEW name if old is locked)
+  DynamoTableName:
+    Type: String
+    Default: invoices
+  SesReceiptRuleSetName:
+    Type: String
+    Default: invoice-inbound
+  CorsOrigins:
+    Type: CommaDelimitedList
+    Default: "https://zexxity.online,https://www.zexxity.online,http://localhost:5173,https://main.d19y00sxkvzipk.amplifyapp.com"
+    Description: Allowed CORS origins
 
 Globals:
   Function:
     Runtime: java21
-    MemorySize: 512
-    Timeout: 60
     Architectures: [x86_64]
     CodeUri: target/invoice-extraction-lambda-2.0.0.jar
     Environment:
       Variables:
         JAVA_TOOL_OPTIONS: "-XX:+TieredCompilation -XX:TieredStopAtLevel=1"
-        DYNAMO_TABLE: !Ref InvoicesTable
+        DYNAMO_TABLE: !Ref DynamoTableName
 
 Resources:
 
@@ -20,13 +38,31 @@ Resources:
   InvoicesTable:
     Type: AWS::DynamoDB::Table
     Properties:
+      TableName: !Ref DynamoTableName
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: invoiceId
           AttributeType: S
+        - AttributeName: validationStatus
+          AttributeType: S
+        - AttributeName: reviewDecision
+          AttributeType: S
       KeySchema:
         - AttributeName: invoiceId
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: validationStatus-index
+          KeySchema:
+            - AttributeName: validationStatus
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: reviewDecision-index
+          KeySchema:
+            - AttributeName: reviewDecision
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
 
   # ── Shared IAM Role ────────────────────────────────────────────────────────
   LambdaExecutionRole:
@@ -53,6 +89,13 @@ Resources:
                   - dynamodb:UpdateItem
                   - dynamodb:Scan
                   - dynamodb:Query
+                  - dynamodb:DescribeTable
+                Resource:
+                  - !GetAtt InvoicesTable.Arn
+                  - !Sub "${InvoicesTable.Arn}/index/*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:DeleteItem
                 Resource: !GetAtt InvoicesTable.Arn
               - Effect: Allow
                 Action:
@@ -61,6 +104,10 @@ Resources:
               - Effect: Allow
                 Action:
                   - bedrock:InvokeModel
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - states:SendTaskSuccess
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -73,31 +120,35 @@ Resources:
                 Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:invoice-processing/config*"
               - Effect: Allow
                 Action:
-                  - s3:PutObject
                   - s3:GetObject
-                Resource: !Sub "arn:aws:s3:::invoice-processing-*/*"
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${InvoiceBucketName}"
+                  - !Sub "arn:aws:s3:::${InvoiceBucketName}/*"
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource: !Sub "arn:aws:s3:::ses-inbound-emails-eu/*"
+                Resource:
+                  - !Sub "arn:aws:s3:::${SesInboundBucketName}"
+                  - !Sub "arn:aws:s3:::${SesInboundBucketName}/*"
 
-  # ── S3 Bucket: SES raw email store already exists in eu-west-1 (created manually) ──────────────
-
-  # ── Lambda: SES Inbound (triggered by SES receipt rule) ───────────────────
+  # ── Lambda: SES Inbound (ap-south-1 — single region) ────────────────────────
   SesInboundFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: ses-inbound-handler
       Handler: com.invoice.processing.SesInboundHandler::handleRequest
       Role: !GetAtt LambdaExecutionRole.Arn
-      # This Lambda reads from eu-west-1 S3 and writes to ap-south-1 S3.
-      # No API Gateway event – SES triggers it directly via receipt rule.
+      MemorySize: 512
+      Timeout: 60
       Environment:
         Variables:
-          SES_INBOUND_BUCKET: ses-inbound-emails-eu
-          INVOICE_BUCKET: invoice-processing-buckets
+          SES_INBOUND_BUCKET: !Ref SesInboundBucketName
+          INVOICE_BUCKET: !Ref InvoiceBucketName
 
-  # Allow SES to invoke this Lambda
+  # Allow SES (receipt rule) to invoke this Lambda
   SesInboundFunctionPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -106,21 +157,54 @@ Resources:
       Principal: ses.amazonaws.com
       SourceAccount: !Sub "${AWS::AccountId}"
 
-  # ── Lambda: Invoice Extraction (triggered by Step Functions) ──────────────
+  # ── SES Receipt Rule Set + Rule (inbound email, ap-south-1) ───────────────
+  ReceiptRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    Properties:
+      RuleSetName: !Ref SesReceiptRuleSetName
+
+  InboundRule:
+    Type: AWS::SES::ReceiptRule
+    Properties:
+      RuleSetName: !Ref SesReceiptRuleSetName
+      Rule:
+        Name: save-and-process-invoices
+        Enabled: true
+        ScanEnabled: true
+        Recipients:
+          - invoices@zexxity.online
+        Actions:
+          - S3Action:
+              BucketName: !Ref SesInboundBucketName
+              ObjectKeyPrefix: emails/
+          - LambdaAction:
+              FunctionArn: !GetAtt SesInboundFunction.Arn
+              InvocationType: Event
+
+  # ── Lambda: Invoice Extraction (invoked by Step Functions) ─────────────────
   InvoiceExtractionFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: invoice-extraction
+      FunctionName: invoice-extraction-lambda
       Handler: com.invoice.processing.InvoiceExtractionHandler::handleRequest
       Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 2048
+      Timeout: 60
+      Environment:
+        Variables:
+          JAVA_TOOL_OPTIONS: "-XX:+TieredCompilation -XX:TieredStopAtLevel=1 -XX:+UseG1GC -XX:MaxGCPauseMillis=100 -XX:+ParallelRefProcEnabled -XX:InitialHeapSize=64m -XX:MaxHeapSize=256m"
+          API_BASE_URL: !Sub "https://${InvoiceApi}.execute-api.${AWS::Region}.amazonaws.com"
 
-  # ── Lambda: Get Invoice (called by API Gateway) ────────────────────────────
+  # ── Lambda: Get Invoice (API) ───────────────────────────────────────────────
   GetInvoiceFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: get-invoice
+      FunctionName: GetInvoiceLambda
       Handler: com.invoice.processing.GetInvoiceHandler::handleRequest
       Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 512
+      Timeout: 30
+      AutoPublishAlias: live
       Events:
         GetAll:
           Type: HttpApi
@@ -128,100 +212,376 @@ Resources:
             ApiId: !Ref InvoiceApi
             Path: /invoices
             Method: GET
-        GetById:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref InvoiceApi
-            Path: /invoices/{id}
-            Method: GET
 
-  # ── Lambda: Approve / Reject (called by API Gateway) ──────────────────────
+  # ── Lambda: Approve / Reject (API) ─────────────────────────────────────────
   ApproveRejectFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: approve-reject-invoice
+      FunctionName: ApproveRejectLambda
       Handler: com.invoice.processing.ApproveRejectHandler::handleRequest
       Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 512
+      Timeout: 30
+      AutoPublishAlias: live
       Events:
         Decision:
           Type: HttpApi
           Properties:
             ApiId: !Ref InvoiceApi
-            Path: /invoices/decision
+            Path: /invoices/review
             Method: POST
 
-  # ── API Gateway (HTTP API with CORS) ──────────────────────────────────────
+  # ── Lambda: Upload URL (API) ───────────────────────────────────────────────
+  UploadUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: UploadUrlLambda
+      Handler: com.invoice.processing.UploadUrlHandler::handleRequest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 2048
+      Timeout: 15
+      AutoPublishAlias: live
+      Environment:
+        Variables:
+          INVOICE_BUCKET: !Ref InvoiceBucketName
+      Events:
+        UploadUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref InvoiceApi
+            Path: /invoices/upload-url
+            Method: POST
+
+  # ── Lambda: Token Approval (API, one-click email links) ────────────────────
+  TokenApprovalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: token-approval
+      Handler: com.invoice.processing.TokenApprovalHandler::handleRequest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 512
+      Timeout: 30
+      AutoPublishAlias: live
+      Events:
+        Approve:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref InvoiceApi
+            Path: /invoices/approve
+            Method: GET
+        Reject:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref InvoiceApi
+            Path: /invoices/reject
+            Method: GET
+
+  # ── Lambda: Request Approval (invoked by Step Functions, WaitForTaskToken) ──
+  RequestApprovalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: request-approval
+      Handler: com.invoice.processing.RequestApprovalHandler::handleRequest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          API_BASE_URL: !Sub "https://${InvoiceApi}.execute-api.${AWS::Region}.amazonaws.com"
+
+  # ── Lambda: Warm-up (keeps interactive containers hot every 5 min) ─────────
+  WarmUpFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda-warm
+      Handler: com.invoice.processing.WarmUpHandler::handleRequest
+      Role: !GetAtt WarmUpRole.Arn
+      MemorySize: 256
+      Timeout: 60
+      Environment:
+        Variables:
+          WARM_TARGETS: !Sub >-
+            arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:GetInvoiceLambda:live,
+            arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:ApproveRejectLambda:live,
+            arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:UploadUrlLambda:live,
+            arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:token-approval:live
+      Events:
+        WarmSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Enabled: true
+
+  WarmUpRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: WarmUpInvoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:GetInvoiceLambda:live"
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:ApproveRejectLambda:live"
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:UploadUrlLambda:live"
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:token-approval:live"
+
+  # ── API Gateway (HTTP API, $default stage, CORS) ───────────────────────────
   InvoiceApi:
     Type: AWS::Serverless::HttpApi
     Properties:
-      StageName: prod
       CorsConfiguration:
-        AllowOrigins:
-          - "*"
+        AllowOrigins: !Ref CorsOrigins
         AllowMethods:
           - GET
           - POST
           - OPTIONS
+          - PUT
+          - DELETE
         AllowHeaders:
-          - Content-Type
-          - Authorization
+          - content-type
+          - authorization
+          - x-requested-with
+        MaxAge: 3000
 
-  # ── Lambda: Expired Review Cleanup (daily cron) ──────────────────────────
+  # ── Lambda: Expired Review Cleanup (daily) ─────────────────────────────────
   ExpiredReviewCleanupFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: expired-review-cleanup
       Handler: com.invoice.processing.ExpiredReviewCleanupHandler::handleRequest
       Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 512
+      Timeout: 120
+      Environment:
+        Variables:
+          API_BASE_URL: !Sub "https://${InvoiceApi}.execute-api.${AWS::Region}.amazonaws.com"
       Events:
         DailyCleanup:
           Type: Schedule
           Properties:
             Schedule: rate(1 day)
-            Description: "Daily scan for invoices stuck in REVIEW_REQUIRED > 72h"
             Enabled: true
 
-  # ── Lambda: Daily Digest Report (every morning at 08:00 IST = 02:30 UTC) ──
+  # ── Lambda: Daily Digest Report (08:00 IST = 02:30 UTC) ────────────────────
   DailyDigestFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: daily-digest-report
       Handler: com.invoice.processing.DailyDigestHandler::handleRequest
       Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 512
+      Timeout: 120
       Events:
         DailyDigest:
           Type: Schedule
           Properties:
             Schedule: cron(30 2 * * ? *)
-            Description: "Daily digest email at 08:00 IST"
             Enabled: true
 
-  # ── Lambda: Weekly S3 Cleanup (every Sunday at 02:00 UTC) ─────────────────
+  # ── Lambda: Weekly S3 Cleanup (Sunday 02:00 UTC) ───────────────────────────
   S3CleanupFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: weekly-s3-cleanup
       Handler: com.invoice.processing.S3CleanupHandler::handleRequest
       Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 512
+      Timeout: 120
       Environment:
         Variables:
-          INVOICE_BUCKET: invoice-processing-buckets
+          INVOICE_BUCKET: !Ref InvoiceBucketName
       Events:
         WeeklyCleanup:
           Type: Schedule
           Properties:
             Schedule: cron(0 2 ? * SUN *)
-            Description: "Weekly S3 PDF cleanup every Sunday at 02:00 UTC"
             Enabled: true
+
+  # ── Step Functions: Invoice Processing ──────────────────────────────────────
+  #  1. ProcessInvoice      – Textract + Bedrock (Nova) validation (retry 4×)
+  #  2. CheckStatus         – APPROVED -> Done; REVIEW_REQUIRED -> human approval;
+  #                           anything else (DUPLICATE/UNKNOWN) -> recorded end
+  #  3. RequestApproval     – WaitForTaskToken: emails reviewer one-click links
+  #                           carrying the task token; waits up to 72h
+  #  4. DecisionOutcome     – reviewer decision (APPROVED/REJECTED) resumes here
+  #  Timeouts: ProcessInvoice 55s; RequestApproval 259200s (72h) -> timed out run
+  InvoiceProcessingStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Type: STANDARD
+      Role: !GetAtt StateMachineRole.Arn
+      Definition:
+        StartAt: ProcessInvoice
+        States:
+          ProcessInvoice:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Parameters:
+              FunctionName: invoice-extraction-lambda
+              Payload.$: "$"
+            OutputPath: "$.Payload"
+            TimeoutSeconds: 55
+            Retry:
+              - ErrorEquals:
+                  - "java.lang.RuntimeException"
+                  - "States.TaskFailed"
+                  - "Lambda.ServiceException"
+                  - "Lambda.TooManyRequestsException"
+                IntervalSeconds: 5
+                MaxAttempts: 4
+                BackoffRate: 3.0
+            Next: CheckStatus
+          CheckStatus:
+            Type: Choice
+            Choices:
+              - Variable: "$.validationStatus"
+                StringEquals: APPROVED
+                Next: Approved
+              - Variable: "$.validationStatus"
+                StringEquals: REVIEW_REQUIRED
+                Next: RequestApproval
+            Default: ReviewOrDuplicate
+          RequestApproval:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke.waitForTaskToken
+            Parameters:
+              FunctionName: request-approval
+              Payload:
+                taskToken.$: "$$.Task.Token"
+                invoiceId.$: "$.invoiceId"
+                risk.$: "$.risk"
+                comments.$: "$.comments"
+                totalConfidence.$: "$.totalConfidence"
+                avgConfidence.$: "$.avgConfidence"
+                validationStatus.$: "$.validationStatus"
+            TimeoutSeconds: 259200
+            Retry:
+              - ErrorEquals:
+                  - "Lambda.ServiceException"
+                  - "Lambda.TooManyRequestsException"
+                  - "States.TaskFailed"
+                IntervalSeconds: 5
+                MaxAttempts: 3
+                BackoffRate: 2.0
+            Catch:
+              - ErrorEquals:
+                  - States.Timeout
+                Next: ApprovalTimedOut
+              - ErrorEquals:
+                  - States.ALL
+                Next: RequestFailed
+            Next: DecisionOutcome
+          DecisionOutcome:
+            Type: Choice
+            Choices:
+              - Variable: "$.decision"
+                StringEquals: APPROVED
+                Next: Approved
+              - Variable: "$.decision"
+                StringEquals: REJECTED
+                Next: Rejected
+            Default: RequestFailed
+          Approved:
+            Type: Pass
+            End: true
+          Rejected:
+            Type: Pass
+            End: true
+          ApprovalTimedOut:
+            Type: Pass
+            End: true
+          RequestFailed:
+            Type: Pass
+            End: true
+          ReviewOrDuplicate:
+            Type: Pass
+            End: true
+
+  StateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeInvoiceExtraction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !GetAtt InvoiceExtractionFunction.Arn
+                  - !GetAtt RequestApprovalFunction.Arn
+
+  # ── EventBridge: S3 Object Created → Step Functions ───────────────────────
+  InvoiceUploadRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref InvoiceBucketName
+          object:
+            key:
+              - prefix: incoming/
+              - prefix: invoices/
+      Targets:
+        - Id: InvoiceProcessingStateMachine
+          Arn: !GetAtt InvoiceProcessingStateMachine.Arn
+          RoleArn: !GetAtt EventsToStatesRole.Arn
+
+  EventsToStatesRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StartExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !GetAtt InvoiceProcessingStateMachine.Arn
 
 Outputs:
   ApiUrl:
-    Description: "API Gateway base URL – paste this into config.js"
-    Value: !Sub "https://${InvoiceApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+    Description: "API Gateway base URL – paste into VITE_API_BASE_URL (Amplify)"
+    Value: !Sub "https://${InvoiceApi}.execute-api.${AWS::Region}.amazonaws.com"
 
-  SesInboundFunctionArn:
-    Value: !GetAtt SesInboundFunction.Arn
-    Description: "Paste this ARN into your SES Receipt Rule → Lambda action"
+  StateMachineArn:
+    Description: "Invoice processing state machine ARN"
+    Value: !GetAtt InvoiceProcessingStateMachine.Arn
+
+  InvoiceExtractionFunctionArn:
+    Value: !GetAtt InvoiceExtractionFunction.Arn
 
   GetInvoiceFunctionArn:
     Value: !GetAtt GetInvoiceFunction.Arn
@@ -229,5 +589,15 @@ Outputs:
   ApproveRejectFunctionArn:
     Value: !GetAtt ApproveRejectFunction.Arn
 
-  InvoiceExtractionFunctionArn:
-    Value: !GetAtt InvoiceExtractionFunction.Arn
+  UploadUrlFunctionArn:
+    Value: !GetAtt UploadUrlFunction.Arn
+
+  TokenApprovalFunctionArn:
+    Value: !GetAtt TokenApprovalFunction.Arn
+
+  RequestApprovalFunctionArn:
+    Value: !GetAtt RequestApprovalFunction.Arn
+
+  SesInboundFunctionArn:
+    Value: !GetAtt SesInboundFunction.Arn
+    Description: "SES receipt rule Lambda target ARN (ses-inbound-handler)"
