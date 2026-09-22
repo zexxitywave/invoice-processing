@@ -347,7 +347,7 @@ mvn clean package -DskipTests
 # Update a single Lambda (example)
 aws lambda update-function-code \
   --function-name ApproveRejectLambda \
-  --zip-file fileb://target/invoice-extraction-lambda-1.0-SNAPSHOT.jar \
+  --zip-file fileb://target/invoice-extraction-lambda-2.0.0.jar \
   --region ap-south-1
 ```
 

@@ -1,0 +1,38 @@
+name: Publish Maven package
+
+# Publishes the shaded Lambda JAR to GitHub Packages (Maven registry).
+# Runs automatically when a release/tag is created, and can be triggered
+# manually via workflow_dispatch (e.g. to re-publish an existing release).
+
+on:
+  release:
+    types: [created]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+          cache: maven
+
+      - name: Build and deploy to GitHub Packages
+        run: mvn --batch-mode deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

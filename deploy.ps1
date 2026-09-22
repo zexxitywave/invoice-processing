@@ -39,7 +39,7 @@ function Err($msg) { Write-Host "    ❌ $msg"  -ForegroundColor Red; exit 1 }
 Log "Building Lambda JAR..."
 mvn clean package -q
 if ($LASTEXITCODE -ne 0) { Err "Maven build failed" }
-Ok "JAR built: target/invoice-extraction-lambda-1.0-SNAPSHOT.jar"
+Ok "JAR built: target/invoice-extraction-lambda-2.0.0.jar"
 
 # ── 2. Create SAM staging bucket if needed ────────────────────────────────────
 Log "Ensuring SAM staging bucket exists..."

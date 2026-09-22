@@ -26,7 +26,7 @@ Globals:
   Function:
     Runtime: java21
     Architectures: [x86_64]
-    CodeUri: ../target/invoice-extraction-lambda-1.0-SNAPSHOT.jar
+    CodeUri: ../target/invoice-extraction-lambda-2.0.0.jar
     Environment:
       Variables:
         JAVA_TOOL_OPTIONS: "-XX:+TieredCompilation -XX:TieredStopAtLevel=1"
