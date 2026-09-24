@@ -14,6 +14,16 @@
 
 }
 
+.form-hint{
+
+    margin-top:0.4rem;
+
+    font-size:0.78rem;
+
+    color:var(--text-muted, #667085);
+
+}
+
 .decision-buttons{
 
     display:flex;

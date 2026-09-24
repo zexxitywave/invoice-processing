@@ -46,7 +46,7 @@ public final class BrevoMailer {
         }
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("sender", Map.of("name", "zexxity", "email", from));
+        body.put("sender", Map.of("name", "Invoice Automation", "email", from));
         body.put("to", List.of(Map.of("email", to)));
         body.put("subject", subject);
         body.put("textContent", textContent);

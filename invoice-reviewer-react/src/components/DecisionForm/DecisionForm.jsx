@@ -44,8 +44,13 @@ export default function DecisionForm({
           onChange={(e) =>
             setReviewer(e.target.value)
           }
-          placeholder="reviewer@example.com"
+          placeholder="your email address"
         />
+
+        <p className="form-hint">
+          The confirmation email for this decision is sent to the address you
+          enter here.
+        </p>
 
       </div>
 

@@ -150,6 +150,7 @@ public class ApproveRejectHandler
                                        String reviewer, String reason, Context ctx) {
         try {
             SecretsManagerConfig cfg = SecretsManagerConfig.getInstance();
+            String frontendUrl = cfg.getFrontendUrl();
 
             String emoji   = "APPROVED".equals(decision) ? "✅" : "❌";
             String subject = emoji + " Invoice " + decision + " – ID: " + invoiceId;
@@ -171,9 +172,17 @@ public class ApproveRejectHandler
                     reviewer != null ? reviewer : "unknown",
                     reason   != null ? reason   : "—",
                     Instant.now(),
-                    cfg.getFrontendUrl());
+                    frontendUrl);
 
-            BrevoMailer.send(cfg.getBrevoSender(), cfg.getSesReviewer(), subject, body);
+            String html = buildConfirmationHtml(invoiceId, decision, reviewer, reason, frontendUrl);
+
+            // Send the confirmation to whoever the reviewer typed (their own email),
+            // falling back to the configured reviewer address only when blank.
+            String reviewerEmail = reviewer != null && !reviewer.isBlank()
+                    ? reviewer.trim() : cfg.getSesReviewer();
+
+            BrevoMailer.send(cfg.getBrevoSender(), reviewerEmail, subject, body, html);
+            ctx.getLogger().log("Confirmation email sent to " + reviewerEmail);
 
             ctx.getLogger().log("Confirmation email sent for " + invoiceId + " → " + decision);
 
@@ -181,6 +190,90 @@ public class ApproveRejectHandler
             // Don't fail the whole request if email fails
             ctx.getLogger().log("WARNING: confirmation email failed: " + e.getMessage());
         }
+    }
+
+    // ── Styled HTML confirmation email ─────────────────────────────────────────
+
+    private static String buildConfirmationHtml(String invoiceId, String decision,
+                                                String reviewer, String reason, String frontendUrl) {
+        boolean approved = "APPROVED".equals(decision);
+        String  emoji    = approved ? "✅" : "❌";
+
+        String headerBg  = approved ? "linear-gradient(135deg,#12b76a,#0e8f57)"
+                                    : "linear-gradient(135deg,#d92d20,#b42318)";
+        String badgeBg   = approved ? "#ecfdf3" : "#fef3f2";
+        String badgeTxt  = approved ? "#067647" : "#b42318";
+
+        String safeId       = esc(invoiceId);
+        String safeReviewer = esc(reviewer != null ? reviewer : "unknown");
+        String safeReason   = esc(reason != null ? reason : "—").replace("\n", "<br/>");
+        String safeUrl      = esc(frontendUrl);
+        String safeDecision = esc(decision);
+
+        return "<div style=\"background:#f2f4f7;padding:24px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;\">"
+             + "<div style=\"max-width:500px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;"
+             +     "border:1px solid #e4e7ec;box-shadow:0 6px 20px rgba(16,24,40,.08);\">"
+             // Header
+             + "<div style=\"padding:22px 28px;background:" + headerBg + ";\">"
+             +   "<div style=\"font-size:12px;letter-spacing:1px;opacity:.85;\">INVOICE PROCESSING SYSTEM</div>"
+             +   "<div style=\"font-size:22px;font-weight:700;color:#ffffff;margin-top:6px;\">"
+             +      emoji + " Invoice " + safeDecision + "</div>"
+             + "</div>"
+             // Body card
+             + "<div style=\"padding:24px 28px;\">"
+             +   "<div style=\"margin-bottom:18px;font-size:13px;color:#475467;line-height:20px;\">"
+             +      "Hello,&nbsp; your decision has been recorded. Here are the details:</div>"
+             // Decision badge
+             +   "<div style=\"margin-bottom:22px;display:inline-block;padding:8px 18px;border-radius:999px;"
+             +      "background:" + badgeBg + ";color:" + badgeTxt + ";font-size:13px;font-weight:700;"
+             +      "letter-spacing:.5px;\">" + emoji + " " + safeDecision + "</div>"
+             // Detail list
+             +   "<table role=\"presentation\" style=\"width:100%;border-collapse:collapse;font-size:13.5px;\">"
+             +     "<tr>"
+             +       "<td style=\"padding:9px 0;color:#667085;width:40%;\">Invoice ID</td>"
+             +       "<td style=\"padding:9px 0;font-weight:600;color:#101828;\"># " + safeId + "</td>"
+             +     "</tr>"
+             +     "<tr>"
+             +       "<td style=\"padding:9px 0;color:#667085;width:40%;border-top:1px solid #f2f4f7;\">Decision</td>"
+             +       "<td style=\"padding:9px 0;font-weight:600;color:#101828;border-top:1px solid #f2f4f7;\">"
+             +          safeDecision + "</td>"
+             +     "</tr>"
+             +     "<tr>"
+             +       "<td style=\"padding:9px 0;color:#667085;width:40%;border-top:1px solid #f2f4f7;\">Reviewed by</td>"
+             +       "<td style=\"padding:9px 0;font-weight:600;color:#101828;border-top:1px solid #f2f4f7;\">"
+             +          safeReviewer + "</td>"
+             +     "</tr>"
+             +     "<tr>"
+             +       "<td style=\"padding:9px 0;color:#667085;width:40%;border-top:1px solid #f2f4f7;\">Note</td>"
+             +       "<td style=\"padding:9px 0;color:#101828;border-top:1px solid #f2f4f7;\">" + safeReason + "</td>"
+             +     "</tr>"
+             +     "<tr>"
+             +       "<td style=\"padding:9px 0;color:#667085;width:40%;border-top:1px solid #f2f4f7;\">Timestamp</td>"
+             +       "<td style=\"padding:9px 0;color:#101828;border-top:1px solid #f2f4f7;\">" + Instant.now() + "</td>"
+             +     "</tr>"
+             +   "</table>"
+             +   "<div style=\"margin-top:18px;padding:14px 16px;background:#f9fafb;border-radius:10px;"
+             +      "font-size:12px;color:#475467;line-height:18px;\">"
+             +      "This action has been recorded in the system and will reflect on the dashboard.</div>"
+             + "</div>"
+             // Footer with CTA
+             + "<div style=\"padding:18px 28px;border-top:1px solid #e4e7ec;text-align:center;\">"
+             +   "<a href=\"" + safeUrl + "\" style=\"display:inline-block;background:#2e5cff;color:#ffffff;"
+             +      "text-decoration:none;padding:11px 22px;border-radius:8px;font-size:13px;font-weight:600;\">"
+             +      "View Dashboard →</a>"
+             +   "<div style=\"margin-top:12px;font-size:11px;color:#98a2b3;\">"
+             +      "— Invoice Processing System · zexxity</div>"
+             + "</div>"
+             + "</div></div>";
+    }
+
+    private static String esc(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
