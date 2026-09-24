@@ -32,3 +32,6 @@ migration/packaged.json
 migration/params.json
 .aws-sam/
 packaged-template.yaml
+
+# Local junk folder — anything moved here is not part of the project
+junk/
