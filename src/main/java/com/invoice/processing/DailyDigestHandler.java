@@ -74,9 +74,10 @@ public class DailyDigestHandler
             }
         }
 
-        // Full backlog counts
-        int approved        = 0, reviewRequired = 0, rejected = 0,
-            escalated       = 0, duplicate = 0, pendingDecision = 0;
+        // Full backlog counts – buckets are mutually exclusive and sum to totalAll:
+        // approved (AI or human), duplicate, rejected, escalated, awaiting decision.
+        int approved = 0, needsReview = 0, rejected = 0,
+            escalated = 0, duplicate = 0;
 
         for (Map<String, AttributeValue> item : allItems) {
             String status   = s(item, "validationStatus");
@@ -84,14 +85,16 @@ public class DailyDigestHandler
 
             switch (status) {
                 case "APPROVED"        -> approved++;
-                case "REVIEW_REQUIRED" -> {
-                    reviewRequired++;
-                    if (decision.isBlank() || decision.equals("—")) pendingDecision++;
-                }
                 case "DUPLICATE"       -> duplicate++;
+                case "REVIEW_REQUIRED" -> {
+                    switch (decision) {
+                        case "REJECTED"  -> rejected++;
+                        case "ESCALATED" -> escalated++;
+                        case "APPROVED"  -> approved++;   // human-approved after review
+                        default          -> needsReview++; // still awaiting a decision
+                    }
+                }
             }
-            if ("REJECTED".equals(decision))  rejected++;
-            if ("ESCALATED".equals(decision)) escalated++;
         }
 
         // Yesterday's breakdown
@@ -122,32 +125,32 @@ public class DailyDigestHandler
         String dateStr = DATE_FMT.format(yesterday) + " – " + DATE_FMT.format(now);
 
         String text = buildTextDigest(dateStr, newIn, newApproved,
-                newReview, newDuplicate, totalAll, approved, reviewRequired,
-                pendingDecision, rejected, duplicate, escalated, highRisk, config.getFrontendUrl());
+                newReview, newDuplicate, totalAll, approved, needsReview,
+                rejected, duplicate, escalated, highRisk, config.getFrontendUrl());
 
         String html = buildHtmlDigest(dateStr, newIn, newApproved,
-                newReview, newDuplicate, totalAll, approved, reviewRequired,
-                pendingDecision, rejected, duplicate, escalated, highRisk, config.getFrontendUrl());
+                newReview, newDuplicate, totalAll, approved, needsReview,
+                rejected, duplicate, escalated, highRisk, config.getFrontendUrl());
 
         String subject = String.format("Daily Invoice Digest — %d new · %d pending review · %s",
-                newIn, pendingDecision, DATE_FMT.format(now));
+                newIn, needsReview, DATE_FMT.format(now));
 
         try {
             BrevoMailer.send(config.getBrevoSender(), config.getSesReviewer(), subject, text, html);
 
-            context.getLogger().log("DailyDigest email sent — " + newIn + " new, " + pendingDecision + " pending");
+            context.getLogger().log("DailyDigest email sent — " + newIn + " new, " + needsReview + " pending");
         } catch (Exception e) {
             context.getLogger().log("DailyDigest email failed: " + e.getMessage());
         }
 
-        return String.format("Digest sent: %d new, %d pending, %d total", newIn, pendingDecision, totalAll);
+        return String.format("Digest sent: %d new, %d pending, %d total", newIn, needsReview, totalAll);
     }
 
     // ── Email rendering ────────────────────────────────────────────────────────
 
     private String buildTextDigest(String dateStr, int newIn,
             int newApproved, int newReview, int newDuplicate, int totalAll,
-            int approved, int reviewRequired, int pendingDecision, int rejected, int duplicate,
+            int approved, int needsReview, int rejected, int duplicate,
             int escalated, List<String> highRisk, String frontendUrl) {
         StringBuilder sb = new StringBuilder();
         sb.append("DAILY INVOICE DIGEST - ").append(dateStr).append("\n\n");
@@ -159,8 +162,7 @@ public class DailyDigestHandler
         sb.append("FULL BACKLOG SUMMARY\n");
         sb.append("  Invoices      : ").append(totalAll).append("\n");
         sb.append("  Approved      : ").append(approved).append("\n");
-        sb.append("  Needs review  : ").append(reviewRequired)
-                .append(" (").append(pendingDecision).append(" awaiting decision)\n");
+        sb.append("  Needs review  : ").append(needsReview).append("\n");
         sb.append("  Rejected      : ").append(rejected).append("\n");
         sb.append("  Duplicates    : ").append(duplicate).append("\n");
         sb.append("  Escalated     : ").append(escalated).append("\n\n");
@@ -181,7 +183,7 @@ public class DailyDigestHandler
 
     private String buildHtmlDigest(String dateStr, int newIn,
             int newApproved, int newReview, int newDuplicate, int totalAll,
-            int approved, int reviewRequired, int pendingDecision, int rejected, int duplicate,
+            int approved, int needsReview, int rejected, int duplicate,
             int escalated, List<String> highRisk, String frontendUrl) {
         StringBuilder h = new StringBuilder();
         h.append("<html><body style=\"margin:0;padding:0;background:#f4f6f8;")
@@ -209,8 +211,8 @@ public class DailyDigestHandler
         h.append(sectionTitle("Full backlog"));
         h.append(summaryRows("Total invoices", kpi(totalAll), false));
         h.append(summaryRows("Approved", kpi(approved), false));
-        h.append(summaryRows("Needs review", kpi(reviewRequired)
-                + " <span style=\"color:#7a8b9d;\">(" + pendingDecision + " awaiting decision)</span>", false));
+        h.append(summaryRows("Needs review", kpi(needsReview)
+                + " <span style=\"color:#7a8b9d;\">(awaiting decision)</span>", false));
         h.append(summaryRows("Rejected", kpi(rejected), false));
         h.append(summaryRows("Duplicates", kpi(duplicate), false));
         h.append(summaryRows("Escalated", kpi(escalated), false));
@@ -304,8 +306,14 @@ public class DailyDigestHandler
 
     private long resolveCreatedAt(Map<String, AttributeValue> item) {
         AttributeValue ca = item.get("createdAt");
-        if (ca != null && ca.n() != null) {
-            try { return Long.parseLong(ca.n()); } catch (NumberFormatException ignored) {}
+        if (ca != null) {
+            if (ca.n() != null) {
+                try { return Long.parseLong(ca.n()); } catch (NumberFormatException ignored) {}
+            }
+            if (ca.s() != null) {
+                // Historic rows stored an ISO-8601 string (Instant.toString()).
+                try { return Instant.parse(ca.s()).getEpochSecond(); } catch (Exception ignored) {}
+            }
         }
         AttributeValue id = item.get("invoiceId");
         if (id != null && id.s() != null) {

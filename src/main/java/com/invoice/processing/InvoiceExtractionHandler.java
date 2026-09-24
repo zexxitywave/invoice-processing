@@ -336,6 +336,26 @@ public class InvoiceExtractionHandler
         return base;
     }
 
+    /** Friendlier display labels for Textract's raw field types. */
+    private static String friendlyFieldType(String type) {
+        return switch (type == null ? "" : type) {
+            case "VENDOR_NAME"              -> "Store / Vendor";
+            case "RECEIVER_NAME"            -> "Bill-to (receiver)";
+            case "INVOICE_RECEIPT_ID"       -> "Invoice ID";
+            case "INVOICE_RECEIPT_DATE"     -> "Invoice Date";
+            case "PAYMENT_TERMS"            -> "Payment Terms";
+            case "SUBTOTAL"                 -> "Subtotal";
+            case "SHIPPING_HANDLING_CHARGE" -> "Shipping Charge";
+            case "SHIPPING"                 -> "Shipping";
+            case "TAX"                      -> "Tax";
+            case "DISCOUNT"                 -> "Discount";
+            case "TOTAL"                    -> "Total";
+            case "AMOUNT_DUE"               -> "Amount Due";
+            case "OTHER"                    -> "Other";
+            default                          -> type;
+        };
+    }
+
     /** Pull key fields from Textract AnalyzeExpense response. */
     private InvoiceData extractInvoiceData(AnalyzeExpenseResponse response, Context ctx) {
         InvoiceData data = new InvoiceData();
@@ -347,16 +367,24 @@ public class InvoiceExtractionHandler
             List<String> subtotalCandidates = new ArrayList<>();
             List<String> otherCandidates   = new ArrayList<>();
             List<String> nameCandidates    = new ArrayList<>();
+            List<Float>  nameConfs         = new ArrayList<>();
+            boolean      vendorFromTypedField = false;
 
             for (var field : doc.summaryFields()) {
                 String type  = field.type()           != null ? field.type().text()                 : "";
                 String value = field.valueDetection() != null ? field.valueDetection().text()       : "";
                 float  conf  = field.valueDetection() != null ? field.valueDetection().confidence() : 0f;
 
-                ctx.getLogger().log("FIELD: " + type + " = " + value + " (" + conf + "%)");
+                // Generic NAME tokens are grouped here (store / bill-to / ship-to /
+                // address all arrive as "NAME"); they get a role-aware block after
+                // extraction, so skip the raw line to avoid duplicates.
+                if (!"NAME".equals(type)) {
+                    ctx.getLogger().log("FIELD: " + friendlyFieldType(type)
+                            + " = " + value + " (" + conf + "%)");
+                }
 
                 switch (type) {
-                    case "VENDOR_NAME"           -> { data.setVendorName(value);   data.setVendorConfidence(conf); }
+                    case "VENDOR_NAME"           -> { data.setVendorName(value); data.setVendorConfidence(conf); vendorFromTypedField = true; }
                     case "INVOICE_RECEIPT_DATE"  -> { data.setInvoiceDate(value);  data.setDateConfidence(conf);   }
                     case "INVOICE_RECEIPT_ID"    -> { data.setInvoiceId(value);    data.setInvoiceIdConfidence(conf); }
                     case "SUBTOTAL"              ->   subtotalCandidates.add(value);
@@ -366,7 +394,7 @@ public class InvoiceExtractionHandler
                     case "DISCOUNT"              ->   data.setDiscount(value);
                     case "TOTAL"                 -> { data.setTotal(value);         data.setTotalConfidence(conf);  }
                     case "OTHER"                 ->   otherCandidates.add(value);
-                    case "NAME"                  ->   nameCandidates.add(value);
+                    case "NAME"                  ->   { nameCandidates.add(value); nameConfs.add(conf); }
                     case "RECEIVER_NAME"         ->   data.setReceiverName(value);
                 }
             }
@@ -385,6 +413,26 @@ public class InvoiceExtractionHandler
                     ctx.getLogger().log("Vendor recovered from NAME token '" + trimmed + "'");
                     break;
                 }
+            }
+
+            // Role-aware display of the generic NAME tokens — annotate each with the
+            // role it played in extraction, but only for names not already shown as
+            // a typed field above (bill-to / typed vendor), so nothing repeats.
+            String receiverLc = data.getReceiverName() != null
+                    ? data.getReceiverName().trim().toLowerCase() : null;
+            String vendorLc   = data.getVendorName() != null
+                    ? data.getVendorName().trim().toLowerCase()   : null;
+            for (int i = 0; i < nameCandidates.size(); i++) {
+                String nm = nameCandidates.get(i) == null ? "" : nameCandidates.get(i).trim();
+                if (nm.isBlank()) continue;
+                String lc   = nm.toLowerCase();
+                boolean isReceiver = receiverLc != null && lc.equals(receiverLc);
+                boolean isVendor   = vendorLc   != null && lc.equals(vendorLc);
+                if (isReceiver)      continue;                     // shown as "Bill-to (receiver)"
+                if (isVendor && vendorFromTypedField) continue;    // shown as "Store / Vendor"
+                String role = isVendor ? "store name" : "other name / address";
+                ctx.getLogger().log("PARTY NAME: " + nm + "  role=" + role
+                        + "  (" + nameConfs.get(i) + "%)");
             }
 
             // Fallback: some PDFs (e.g. "Invoice # 8439") come back with the number
@@ -856,7 +904,7 @@ validationStatus MUST be one of APPROVED, REVIEW_REQUIRED.
         item.put("totalConfidence",   n(data.getTotalConfidence()));
         item.put("invoiceIdConfidence", n(data.getInvoiceIdConfidence()));
         item.put("dateConfidence",    n(data.getDateConfidence()));
-        item.put("createdAt",         s(createdAt != null ? createdAt.toString() : Instant.now().toString()));
+        item.put("createdAt",         n((createdAt != null ? createdAt : Instant.now()).getEpochSecond()));
 
         return item;
     }
