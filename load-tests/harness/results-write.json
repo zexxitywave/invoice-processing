@@ -1,0 +1,44 @@
+﻿[
+    {
+        "label":  "POST /invoices/review t=1",
+        "threads":  1,
+        "durationSec":  10,
+        "total":  16,
+        "httpErrors":  0,
+        "transportErrors":  0,
+        "throughput":  1.6,
+        "avg":  644.3,
+        "min":  451.6,
+        "max":  3082.2,
+        "p50":  473.1,
+        "p90":  536.8,
+        "p95":  3082.2,
+        "p99":  3082.2,
+        "errorPct":  0,
+        "statusCodes":  {
+                            "200":  16
+                        },
+        "firstError":  null
+    },
+    {
+        "label":  "POST /invoices/review t=5",
+        "threads":  5,
+        "durationSec":  10,
+        "total":  47,
+        "httpErrors":  0,
+        "transportErrors":  0,
+        "throughput":  4.7,
+        "avg":  1074.7,
+        "min":  290.5,
+        "max":  8403.3,
+        "p50":  440.9,
+        "p90":  543.2,
+        "p95":  7969.1,
+        "p99":  8403.3,
+        "errorPct":  0,
+        "statusCodes":  {
+                            "200":  47
+                        },
+        "firstError":  null
+    }
+]
