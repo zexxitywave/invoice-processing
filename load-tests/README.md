@@ -1,14 +1,55 @@
-# Load Tests — Invoice Processing System (JMeter)
+# Load Tests — Invoice Processing System
 
-JMeter-based load test suite covering every Lambda endpoint in the invoice processing pipeline.
+Two suites are available:
+
+| Suite | Tool | Status |
+|---|---|---|
+| `invoice_full_suite.jmx` | JMeter | Requires JMeter 5.6+; **has known defects, see below** |
+| [`harness/`](harness/) | .NET `HttpClient` (built into Windows) | **Works with zero installation** |
+
+For a working run today, use the harness:
+
+```powershell
+.\load-tests\harness\run-loadtest.ps1     # read paths, ~8 min
+.\load-tests\harness\run-writetest.ps1   # bounded write path
+```
+
+Results from the most recent run are in [`../docs/load-test-results.md`](../docs/load-test-results.md).
 
 ---
 
-## Structure
+## Known defects in the JMeter suite
+
+Fix these before trusting a JMeter report:
+
+1. **TG1 assertion is wrong.** `GET /invoices` returns an object
+   `{ totalCount, items: [...] }`, not a JSON array. The "response body is a JSON array"
+   assertion fails even when the API is healthy.
+2. **`data/invoice_ids.csv` is stale.** All 20 IDs still carry the `# ` prefix that the
+   25 Sep 2026 backfill removed, so every lookup returns 404. Re-seed before use.
+3. **TG4 is destructive.** The `-DryRun` flag does **not** make approve/reject safe: the
+   handler uses an unconditional `UpdateItem`, so synthetic IDs are *inserted* as new
+   invoices, and confirmation emails are sent for real. TG4 also hardcodes the reviewer
+   address instead of reading `reviewer_email` from `user.properties`.
+4. **Documented routes are wrong.** There is no `GET /invoices/{id}` and no
+   `POST /invoices/decision`. The real routes are `GET /invoices?id=<id>` and
+   `POST /invoices/review`. Email is sent via **Brevo**, not SES, and the token TTL is
+   **72 hours**.
+5. **The `stress` profile asks for ~330 VUs** against a regional Lambda concurrency quota
+   of 10, so it mostly measures throttling.
+
+---
+
+## JMeter suite reference
+
+The rest of this file documents the original JMeter plan.
+
+### Structure
 
 ```
 load-tests/
 ├── invoice_full_suite.jmx    JMeter test plan — 6 Thread Groups, all endpoints
+├── harness/                  Dependency-free .NET load harness (preferred today)
 ├── user.properties           Thread counts, ramp times, durations, API config
 ├── run.ps1                   PowerShell runner — finds jmeter.bat, runs test, generates report
 ├── README.md                 This file
