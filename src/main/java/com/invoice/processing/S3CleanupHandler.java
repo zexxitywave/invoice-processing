@@ -22,8 +22,11 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 /**
  * S3CleanupHandler – runs every Sunday at 02:00 UTC via EventBridge.
  *
- * Deletes PDF files older than 30 days from:
+ * Deletes PDF files older than 7 days from:
  *   s3://invoice-processing-buckets/invoices/
+ *
+ * The weekly schedule together with a 7-day retention clears roughly the
+ * previous week's raw PDFs on every run, instead of waiting a month.
  *
  * Audit JSON files (audit/) are intentionally kept as the permanent record.
  * Only the raw PDFs are cleaned up to save storage cost.
@@ -34,7 +37,7 @@ public class S3CleanupHandler
     private static final String INVOICE_BUCKET  = System.getenv("INVOICE_BUCKET") != null
             ? System.getenv("INVOICE_BUCKET") : "invoice-processing-buckets";
     private static final String INVOICE_PREFIX  = "invoices/";
-    private static final int    RETENTION_DAYS  = 30;
+    private static final int    RETENTION_DAYS  = 7;
 
     private final S3Client s3 = S3Client.builder()
             .region(Region.AP_SOUTH_1).build();
