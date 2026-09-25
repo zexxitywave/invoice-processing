@@ -479,9 +479,11 @@ Resources:
             Catch:
               - ErrorEquals:
                   - States.Timeout
+                ResultPath: "$.error"
                 Next: ApprovalTimedOut
               - ErrorEquals:
                   - States.ALL
+                ResultPath: "$.error"
                 Next: RequestFailed
             Next: DecisionOutcome
           DecisionOutcome:
@@ -501,11 +503,13 @@ Resources:
             Type: Pass
             End: true
           ApprovalTimedOut:
-            Type: Pass
-            End: true
+            Type: Fail
+            Error: ApprovalTimeout
+            Cause: "States.Format('No reviewer decision received within 259200s (72h). invoiceId={}, taskError={}', $.invoiceId, $.error.Error)"
           RequestFailed:
-            Type: Pass
-            End: true
+            Type: Fail
+            Error: ApprovalRequestFailed
+            Cause: "Approval request failed, or reviewer returned an unrecognised decision."
           ReviewOrDuplicate:
             Type: Pass
             End: true
