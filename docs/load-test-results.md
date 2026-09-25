@@ -325,13 +325,17 @@ The load test was worth running for these alone.
 .\load-tests\harness\run-writetest.ps1   # bounded write path, ~20 s
 ```
 
-Results are written to `load-tests/harness/results-read.json` and `results-write.json`.
-Phantom rows created by the token and write scenarios are removed automatically by
-`cleanup-phantoms.ps1`, which verifies the delete and re-scans to confirm.
+Results are written as Markdown to `load-tests/harness/results-read.md` and
+`results-write.md`, so a run can be read directly on GitHub or in any Markdown
+viewer without a JSON tool. Phantom rows created by the token and write scenarios
+are removed automatically by `cleanup-phantoms.ps1`, which verifies the delete and
+re-scans to confirm.
 
-The harness is three files: `LoadHarness.cs` (threaded `HttpClient`, records per-request
-latency, computes percentiles), the two runners, and the cleanup script. Edit the
-`foreach ($t in @(...))` blocks to change VU counts, or `$dur` to change duration.
+The harness is: `LoadHarness.cs` (threaded `HttpClient`, records per-request
+latency, computes percentiles, and renders the Markdown report), the two runners,
+the cleanup script, and `results-to-markdown.ps1` (one-off migration that converted
+the archived JSON captures to the Markdown format). Edit the `foreach ($t in @(...))`
+blocks to change VU counts, or `$dur` to change duration.
 
 > **Expect different numbers on your machine.** The ceiling moves between 68 and 104 req/s
 > depending on how many containers are warm when you start. That variance is real and is

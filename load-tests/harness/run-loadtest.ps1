@@ -2,12 +2,14 @@ $ErrorActionPreference = "Stop"
 
 $here = $PSScriptRoot
 $base = "https://xei4kla8v8.execute-api.ap-south-1.amazonaws.com"
-$outFile = Join-Path $here "results-read.json"
+$outFile = Join-Path $here "results-read.md"
 
 Add-Type -Path (Join-Path $here "LoadHarness.cs") `
     -ReferencedAssemblies @("System.dll", "System.Core.dll", "System.Net.Http.dll") | Out-Null
 
-$results = New-Object System.Collections.Generic.List[object]
+# Must be List[ScenarioResult]: [Report]::Markdown takes IList<ScenarioResult> and
+# PowerShell cannot convert a List[object] to it at runtime.
+$results = New-Object System.Collections.Generic.List[ScenarioResult]
 
 function Run-Scenario {
     param($label, $method, $url, $body, $threads, $dur, $keepAlive = $true)
@@ -52,17 +54,13 @@ foreach ($t in @(60, 100)) {
 Write-Host "`n=== Cleanup: removing phantom rows created by T4 ===" -ForegroundColor Yellow
 & (Join-Path $here "cleanup-phantoms.ps1")
 
-$rows = @()
-foreach ($r in $results) {
-    $codes = [ordered]@{}
-    foreach ($k in ($r.StatusCodes.Keys | Sort-Object)) { $codes["$k"] = $r.StatusCodes[$k] }
-    $rows += [ordered]@{
-        label = $r.Label; threads = $r.Threads; durationSec = $r.DurationSec
-        total = $r.Total; httpErrors = $r.HttpErrors; transportErrors = $r.TransportErrors
-        throughput = $r.Throughput; avg = $r.Avg; min = $r.Min; max = $r.Max
-        p50 = $r.P50; p90 = $r.P90; p95 = $r.P95; p99 = $r.P99
-        errorPct = $r.ErrorPct; statusCodes = $codes; firstError = $r.FirstError
-    }
-}
-$rows | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $outFile -Encoding UTF8
+$generatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") + " IST"
+# Single-quoted so the markdown backticks stay literal; a backtick inside a
+# double-quoted PowerShell string is an escape character and gets eaten.
+$notes = 'Read-path only: no invoice rows are created, except T4 which hits the approve endpoint with a ' +
+         'synthetic token and writes one phantom row per request. Those rows are deleted by ' +
+         '`cleanup-phantoms.ps1` immediately after T5.'
+
+$md = [Report]::Markdown("Load test - read path", $base, $generatedAt, $results, $notes)
+[IO.File]::WriteAllText($outFile, $md, (New-Object Text.UTF8Encoding($false)))
 Write-Host "`nSAVED: $outFile" -ForegroundColor Green

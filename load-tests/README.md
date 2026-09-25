@@ -15,6 +15,10 @@ For a working run today, use the harness:
 ```
 
 Results from the most recent run are in [`../docs/load-test-results.md`](../docs/load-test-results.md).
+Raw per-scenario output is written as Markdown to
+[`harness/results-read.md`](harness/results-read.md) and
+[`harness/results-write.md`](harness/results-write.md), readable on GitHub without
+any JSON viewer.
 
 ---
 
