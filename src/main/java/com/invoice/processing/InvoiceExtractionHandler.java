@@ -46,6 +46,8 @@ public class InvoiceExtractionHandler
     // Textract often reports the invoice number as an untyped "OTHER" token such
     // as "# 8439" instead of INVOICE_RECEIPT_ID. Fall back to this pattern.
     private static final Pattern INVOICE_ID_FROM_HASH = Pattern.compile("#\\s*([0-9][0-9A-Za-z.\\-]*)");
+    // Trailing digit run in a file name, e.g. "invoice_Ralph_Arnett_17190" -> "17190"
+    private static final Pattern TRAILING_DIGITS = Pattern.compile("([0-9]{2,})\\s*$");
     private static final String DYNAMO_TABLE         = System.getenv("DYNAMO_TABLE") != null
             ? System.getenv("DYNAMO_TABLE") : "invoices";
     private static final double CONFIDENCE_THRESHOLD = 95.0;
@@ -248,10 +250,11 @@ public class InvoiceExtractionHandler
 
             // 6. Duplicate detection – must happen after Bedrock so we still know the duplicate
             boolean isDuplicate = false;
-            if (invoiceData.getInvoiceId() != null && !invoiceData.getInvoiceId().isBlank()) {
+            String duplicateCheckId = normalizeInvoiceId(invoiceData.getInvoiceId());
+            if (duplicateCheckId != null) {
                 Map<String, AttributeValue> key = new HashMap<>();
                 key.put("invoiceId", AttributeValue.builder()
-                        .s(invoiceData.getInvoiceId()).build());
+                        .s(duplicateCheckId).build());
 
                 GetItemResponse existing = dynamoDbClient.getItem(
                         GetItemRequest.builder().tableName(DYNAMO_TABLE).key(key).build());
@@ -261,13 +264,13 @@ public class InvoiceExtractionHandler
                     risk           = "HIGH";
                     validationStatus = "DUPLICATE";
                     comments       = "Duplicate invoice – already exists in the system.";
-                    context.getLogger().log("DUPLICATE INVOICE DETECTED: " + invoiceData.getInvoiceId());
+                    context.getLogger().log("DUPLICATE INVOICE DETECTED: " + duplicateCheckId);
                 }
             }
 
             // 7. Save to DynamoDB – skip when the invoiceId already exists so we never
             //    overwrite the original record (preserves the audit trail of the first decision)
-            String invoiceId = resolveInvoiceId(invoiceData);
+            String invoiceId = resolveInvoiceId(invoiceData, sourceFileName, context);
             if (!isDuplicate) {
                 Map<String, AttributeValue> item = buildDynamoItem(
                         invoiceId, invoiceData, risk, validationStatus,
@@ -278,8 +281,8 @@ public class InvoiceExtractionHandler
                 context.getLogger().log("Invoice saved to DynamoDB. ID=" + invoiceId
                         + "  status=" + validationStatus + "  risk=" + risk);
 
-                // 8. Upload audit JSON to S3
-                String auditKey = "audit/invoice-" + invoiceId.replace("#", "").trim() + ".json";
+                // 8. Upload audit JSON to S3 – invoiceId is already normalized
+                String auditKey = "audit/invoice-" + invoiceId + ".json";
                 s3Client.putObject(
                         PutObjectRequest.builder()
                                 .bucket(bucketName).key(auditKey).contentType("application/json").build(),
@@ -909,11 +912,61 @@ validationStatus MUST be one of APPROVED, REVIEW_REQUIRED.
         return item;
     }
 
-    private String resolveInvoiceId(InvoiceData data) {
-        String id = data.getInvoiceId();
-        return (id == null || id.isBlank())
-                ? "UNKNOWN-" + System.currentTimeMillis() + "-" + ThreadLocalRandom.current().nextInt(1000, 9999)
-                : id;
+    /**
+     * Final invoice id used as the DynamoDB key.
+     *
+     * Priority:
+     *   1. the id Textract read, normalized ("# 13789" -> "13789")
+     *   2. a number recovered from the PDF file name (invoice_<name>_<id>.pdf)
+     *   3. a synthetic UNKNOWN-* token so the row is still auditable
+     */
+    private String resolveInvoiceId(InvoiceData data, String sourceFileName, Context ctx) {
+        String id = normalizeInvoiceId(data.getInvoiceId());
+        if (id != null) {
+            if (!id.equals(data.getInvoiceId())) {
+                ctx.getLogger().log("Normalized invoice ID '" + data.getInvoiceId()
+                        + "' -> '" + id + "'");
+            }
+            return id;
+        }
+
+        String fromFile = filenameInvoiceId(sourceFileName);
+        if (fromFile != null) {
+            data.setInvoiceId(fromFile);
+            ctx.getLogger().log("Invoice ID recovered from file name '"
+                    + sourceFileName + "' -> " + fromFile);
+            return fromFile;
+        }
+
+        String fallback = "UNKNOWN-" + System.currentTimeMillis() + "-"
+                + ThreadLocalRandom.current().nextInt(1000, 9999);
+        ctx.getLogger().log("No invoice ID found in document or file name '"
+                + sourceFileName + "' -> " + fallback);
+        return fallback;
+    }
+
+    /** Trim and strip a leading '#' so "# 13789" and "13789" share one key. */
+    private static String normalizeInvoiceId(String raw) {
+        if (raw == null) return null;
+        String cleaned = raw.trim();
+        while (cleaned.startsWith("#")) {
+            cleaned = cleaned.substring(1).trim();
+        }
+        return cleaned.isEmpty() ? null : cleaned;
+    }
+
+    /** Extract the trailing number from a PDF name, e.g. "invoice_Ralph_Arnett_17190.pdf". */
+    private static String filenameInvoiceId(String fileName) {
+        if (fileName == null || fileName.isBlank()) return null;
+        String base = fileName;
+        int slash = base.lastIndexOf('/');
+        if (slash >= 0) base = base.substring(slash + 1);
+        if (base.toLowerCase().endsWith(".pdf")) {
+            base = base.substring(0, base.length() - 4);
+        }
+        Matcher m = TRAILING_DIGITS.matcher(base.trim());
+        if (m.find()) return m.group(1);
+        return null;
     }
 
     // ── DynamoDB value builders ────────────────────────────────────────────────
