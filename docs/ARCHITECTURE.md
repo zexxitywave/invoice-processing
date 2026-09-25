@@ -82,7 +82,8 @@ all inside a `WaitForTaskToken` callback so the execution never abandons.
      conservative REVIEW_REQUIRED, never a crash.
 4. **Decide.**
    - Validation string is `APPROVED` → `CheckStatus` routes to **Approved**.
-   - Anything else → **ReviewOrDuplicate** → **RequestApproval**.
+   - `REVIEW_REQUIRED` → **RequestApproval** (human decision).
+   - Anything else (incl. `DUPLICATE` / `UNKNOWN`) → **ReviewOrDuplicate**.
 5. **Human approval.** `RequestApproval` uses `Resource:
    arn:aws:states:::lambda:invoke.waitForTaskToken`. It:
    - sends the reviewer a Brevo e-mail with one-click Approve/Reject links
@@ -97,17 +98,25 @@ all inside a `WaitForTaskToken` callback so the execution never abandons.
 
 ## State machine
 
-States: `ProcessInvoice` → `CheckStatus` → (`Approved` | `ReviewOrDuplicate` →
-`RequestApproval`) → `DecisionOutcome` → `Approved` / `Rejected`, plus the
-catches `RequestFailed` (ProcessInvoice dead-letter) and `ApprovalTimedOut`
-(RequestApproval TTL).
+States: `ProcessInvoice` → `CheckStatus` → (`Approved` | `RequestApproval` |
+`ReviewOrDuplicate`) → `DecisionOutcome` → `Approved` / `Rejected`, plus
+`ApprovalTimedOut` and `RequestFailed`.
 
-- `ProcessInvoice`: TimeoutSeconds 55, interval 3 s, backoff 1.5, 3 retries,
-  catches `Lambda.ServiceException`, `Lambda.AWSLambdaException`,
-  `States.TaskFailed` → `RequestFailed` (state succeeds, workflow ends).
-- `RequestApproval`: `waitForTaskToken`, TimeoutSeconds 259200,
-  `Catch` → `ApprovalTimedOut` (also succeeds; does not leave dangling
-  RUNNING executions).
+- `ProcessInvoice`: TimeoutSeconds 55, interval 5 s, backoff 3.0,
+  `MaxAttempts` 4, errors `java.lang.RuntimeException`, `States.TaskFailed`,
+  `Lambda.ServiceException`, `Lambda.TooManyRequestsException`.
+  **No `Catch`** — retry exhaustion fails the execution. `States.Timeout` is
+  not in the retry set, so a slow extraction gets no retry.
+- `RequestApproval`: `waitForTaskToken`, TimeoutSeconds 259200, interval 5 s,
+  backoff 2.0, `MaxAttempts` 3; `Catch` `States.Timeout` → `ApprovalTimedOut`
+  and `States.ALL` → `RequestFailed` (both succeed, so neither leaves a
+  dangling RUNNING execution).
+
+**See [`state-machine.md`](state-machine.md) for the full reference** — component
+topology, per-state I/O contracts, the complete retry/failure matrix, both
+reviewer approval paths (only the email one-click path calls
+`SendTaskSuccess`; the dashboard path does not resume the workflow), token
+security, and the list of known divergences from intended behaviour.
 
 ## Persistence
 
