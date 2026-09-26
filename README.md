@@ -62,7 +62,7 @@ recorded for full auditability.
 
 ## Architecture
 
-```
+```text
 INGESTION
 ─────────
 Vendor email → invoices@zexxity.online
@@ -126,7 +126,7 @@ All functions run in `ap-south-1` — the extraction pipeline's capacity is hand
 a jittered backoff retry on Textract rate limits, so bursty uploads do not drop invoices.
 
 | Function | Handler | Trigger | Timeout |
-|---|---|---|---|
+|---|---|---|---:|
 | `invoice-extraction-lambda` | `InvoiceExtractionHandler` | EventBridge (S3 event) | 120 s |
 | `ses-inbound-handler` | `SesInboundHandler` | SES receipt rule | 60 s |
 | `GetInvoiceLambda` | `GetInvoiceHandler` | API Gateway `GET` | 30 s |
@@ -145,7 +145,7 @@ a jittered backoff retry on Textract rate limits, so bursty uploads do not drop 
 **Base URL:** `https://xei4kla8v8.execute-api.ap-south-1.amazonaws.com`
 
 | Method | Path | Lambda | Description |
-|---|---|---|---|
+|:---:|---|---|---|
 | `GET` | `/invoices` | `GetInvoiceLambda` | List invoices + dashboard metrics (parallel GSI reads) |
 | `GET` | `/invoices?id=<id>` | `GetInvoiceLambda` | Single invoice by ID |
 | `POST` | `/invoices/upload-url` | `UploadUrlLambda` | Presigned S3 PUT URL (5 min expiry) |
@@ -157,7 +157,7 @@ a jittered backoff retry on Textract rate limits, so bursty uploads do not drop 
 
 ## Extraction & Routing Logic
 
-```
+```text
 totalConfidence = Textract confidence on the TOTAL field (0–100%)
 missingFields   = computed from the extracted values themselves (vendorName,
                   invoiceDate, invoiceId, subtotal, total) merged with Bedrock
@@ -199,7 +199,7 @@ Extraction failures are handled defensively:
 **Attributes**
 
 | Attribute | Type | Description |
-|---|---|---|
+|:---|:---:|---|
 | `invoiceId` | S | Extracted by Textract |
 | `vendorName` | S | Extracted by Textract |
 | `invoiceDate` | S | Extracted by Textract |
@@ -225,7 +225,7 @@ Extraction failures are handled defensively:
 Outbound emails are sent through **Brevo (Sendinblue)** — reviewer notifications,
 confirmations, the daily digest, and 72 h escalation summaries.
 
-```
+```text
 Invoice flagged REVIEW_REQUIRED
         │
         ▼
@@ -304,7 +304,7 @@ npm run dev     # http://localhost:5173
 
 ## Repository Layout
 
-```
+```text
 invoice-processing/
 ├── src/main/java/com/invoice/processing/
 │   ├── InvoiceExtractionHandler.java        core pipeline (Textract + Bedrock + rules → ops)
@@ -404,7 +404,7 @@ execution environments warm. Handlers build AWS SDK clients eagerly so class gra
 ready on first call. Latency measured against the live API (`GET /invoices`):
 
 | Case | Latency |
-|---|---|
+|---|---:|
 | Warm request | ~200–350 ms |
 | First request on a hydrated container | ~200–300 ms |
 | Cold start after >15 min idle | ~5.5 s |
@@ -412,7 +412,7 @@ ready on first call. Latency measured against the live API (`GET /invoices`):
 ### Known failure modes & edge cases
 
 | # | Risk | Failure scenario | Impact |
-|---|---|---|---|
+|:--:|---|---|---|---|
 | 1 | Poison messages | Password-protected, corrupt, or non-PDF document | Function retries up to 24 h, then drops silently |
 | 2 | Large / multi-page invoices | Over Textract synchronous limits (≈5 MB) | Invoice never processed |
 | 3 | Upload network failure | Browser PUT fails mid-flight; 5-min URL expires | Manual re-upload required |
